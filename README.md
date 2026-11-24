@@ -12,10 +12,27 @@ Training, nutrition and bodyweight in one offline-first web app for iPhone and A
 | **Body** | Weigh-ins, trend weight, body composition, adaptive expenditure, intake history |
 | **More** | Appearance (dark / light / match phone), backup / restore, CSV exports, units, training settings, food databases, workout history, exercise library, food library, replay tutorial, erase all |
 
+## Store apps (iOS / Android)
+
+The same files ship as native apps through **Capacitor 8**. `npm run build` copies the web app into `www/`; `npx cap sync` puts it into `ios/` and `android/`. GitHub Actions builds both: no Mac needed. Full checklist, secrets and timeline: **[docs/LAUNCH.md](docs/LAUNCH.md)**.
+
+```
+npm ci            # once
+npm test
+npm run sync      # build www/ + copy into ios/ and android/
+npm run assets    # regenerate icons/splash from assets/
+npm run version:set -- 1.4.0
+```
+
+`native.js` is the only native-aware file. It does nothing on the web (`window.Native === null`); in the apps it adds a lock-screen rest-timer notification, haptics, keep-awake during workouts, share-sheet exports, system-bar styling, and mirrors every save to a JSON file in app storage (restored automatically if the WebView's storage is ever cleared). Callers guard with `if (window.Native)`.
+
 ## Files
 
 ```
 index.html          page + all CSS
+config.js           release settings: RevenueCat keys, entitlement, links
+pro.js              subscriptions + paywall (window.Pro)
+native.js           iOS/Android bridge (no-op on the web)
 shell.js            storage, units, shared bodyweight (window.Shell). Loads before the modules
 gains-core.js       training logic, pure (window.GCore / node module)
 gains.js            training module: views + actions (window.GAINS, actions G.*)
@@ -28,7 +45,7 @@ gains-core.test.js  node gains-core.test.js
 macros-core.test.js node --test macros-core.test.js
 ```
 
-Script order matters: `gains-core → macros-core → shell → gains → macros → app`.
+Script order matters: `config → native → gains-core → macros-core → shell → gains → macros → pro → app`.
 
 ## Architecture
 
@@ -270,6 +287,13 @@ node --test macros-core.test.js
 Static files: upload the folder to any HTTPS host (e.g. GitHub Pages), open it in Safari or Chrome, and add it to the home screen. Bump `V` in `sw.js` and `BUILD` in `app.js` on each release.
 
 ## Changelog
+
+### v1.4 — 2026-11-23
+- **openCOACH Pro subscriptions:** hard paywall after the intro tour with a 7-day trial (annual / 6-month / monthly) via RevenueCat → StoreKit / Play Billing. Off on the web and in builds without keys (`config.js`). Offline grace, Restore, Manage, Export my data from the paywall. See `docs/SUBSCRIPTIONS.md`.
+
+### v1.3 — 2026-11-23
+- **Native apps:** Capacitor 8 iOS + Android projects, CI that builds both on every PR, TestFlight and Play release workflows, privacy and support pages, launch checklist (`docs/LAUNCH.md`).
+- **Updates actually arrive:** the service worker skips GitHub Pages' 10-minute HTTP cache when filling and refreshing its cache, the app checks for a new version on every resume and every 30 min, and a new version reloads when the app is backgrounded or from a *Reload* banner. More shows the build and a *Check for update* link.
 
 ### v1.2 — 2026-11-23
 - **Light / dark / match-phone theme** (More → General). Light is a soft off-white, not pure white. Set before first paint, so no flash.

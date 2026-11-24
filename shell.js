@@ -31,7 +31,9 @@
       bwTrend = null;
       if (!Shell.ready) return;
       try {
-        localStorage.setItem(KEY, JSON.stringify({ v: 1, app: 'openCOACH', gains: window.GAINS.state(), macros: window.MACROS.state(), shell: Shell.meta }));
+        const json = JSON.stringify({ v: 1, app: 'openCOACH', gains: window.GAINS.state(), macros: window.MACROS.state(), shell: Shell.meta });
+        localStorage.setItem(KEY, json);
+        if (window.Native) window.Native.persist(json);
       } catch (e) { Shell.toast('Could not save — storage full or blocked'); }
     },
 
@@ -80,6 +82,7 @@
       if (t === 'auto') t = window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       document.documentElement.dataset.theme = t;
       const mc = document.getElementById('themeColor'); if (mc) mc.content = t === 'light' ? '#e8e7ed' : '#111114';
+      if (window.Native) window.Native.bars(t);
     },
     setTheme(t) { Shell.meta.theme = t; Shell.save(); Shell.applyTheme(); if (Shell.render) Shell.render(); },
 

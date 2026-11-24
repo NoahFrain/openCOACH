@@ -1,0 +1,35 @@
+{
+  "appId": "com.noahfrain.opencoach",
+  "appName": "openCOACH",
+  "webDir": "www",
+  "backgroundColor": "#111114",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#111114",
+    "scrollEnabled": true
+  },
+  "android": {
+    "backgroundColor": "#111114",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "launchAutoHide": true,
+      "backgroundColor": "#111114",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP"
+    },
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DARK"
+    },
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true
+    },
+    "LocalNotifications": {
+      "iconColor": "#8b74bd"
+    }
+  }
+}

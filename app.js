@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const Shell = window.Shell, GAINS = window.GAINS, MACROS = window.MACROS, MC = window.MCore;
-  const BUILD = 'v1.2 · 2026-11-23';
+  const BUILD = 'v1.4 · 2026-11-23';
   const TUTORIAL_V = 1; // bump to re-show the tutorial to everyone after a major feature
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,6 +35,14 @@
   };
   function render() {
     const y = window.scrollY;
+    // hard paywall (store apps with subscriptions configured): after the intro tour, nothing but the paywall
+    const pw = window.Pro && Pro.locked() && !(ui.modal && ui.modal.type === 'tour');
+    document.body.classList.toggle('paywall', !!pw);
+    if (pw) {
+      const appEl0 = $('#app'); GAINS.closeModal(); MACROS.closeModal();
+      appEl0.innerHTML = Pro.paywallHTML(GAINS.hasData() || MACROS.hasData()); $('#tabs').innerHTML = '';
+      return;
+    }
     const v = ui.tab === 'train' ? GAINS.view() : ui.tab === 'food' ? MACROS.view() : ui.tab === 'body' ? MACROS.view('body') : ui.tab === 'more' ? viewMore() : viewToday();
     // A running barcode scanner owns a live <video>; rebuilding it would kill the camera mid-scan,
     // so lift the live node out and drop it back into the fresh markup.
@@ -43,7 +51,8 @@
     const appEl = $('#app'); appEl.style.minHeight = appEl.offsetHeight + 'px';
     const liveScan = document.querySelector('#app .scan-wrap');
     if (liveScan) liveScan.remove();
-    $('#app').innerHTML = v + GAINS.modal() + MACROS.modal() + (ui.modal ? shellModal() : '');
+    const upd = Shell.updateReady ? `<div class="card notice sm row" style="margin-bottom:10px"><span class="sp"><b>New version ready.</b> Reload to update (your data stays).</span><button class="sm pri" onclick="Shell.reloadNow()">Reload</button></div>` : '';
+    $('#app').innerHTML = upd + v + GAINS.modal() + MACROS.modal() + (ui.modal ? shellModal() : '');
     if (liveScan) { const slot = document.querySelector('#app .scan-wrap'); if (slot) slot.replaceWith(liveScan); }
     $('#tabs').innerHTML = TABS.map(([k, i, l]) => `<button class="${ui.tab === k ? 'on' : ''}" onclick="Shell.go('${k}')"><span class="ti">${i}</span>${l}</button>`).join('');
     window.scrollTo(0, y);
@@ -62,7 +71,7 @@
 
   // ---------- Today ----------
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isStandalone = () => !!(window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches));
+  const isStandalone = () => !!(window.Native || window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches));
   function viewToday() {
     const now = new Date();
     let h = Shell.topbar() + `<h1 style="margin-bottom:2px">Today</h1><div class="mut xs" style="margin:0 2px 14px">${now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>`;
@@ -93,6 +102,7 @@
       <div class="g2"><button class="pri" onclick="Shell.backup()">Backup JSON</button><label class="btn">Restore / import<input type="file" accept=".json,application/json" style="display:none" onchange="Shell.restore(this)"></label></div>
       <div class="g3" style="margin-top:8px"><button class="sm" onclick="G.expCSV()">Workouts CSV</button><button class="sm" onclick="M.expDiaryCSV()">Food CSV</button><button class="sm" onclick="M.expBioCSV()">Body CSV</button></div>
       <div class="xs mut" style="margin-top:9px">Backup JSON holds everything. Restore also accepts openGAINS and openMACROS backups: each replaces only its own half, and bodyweight entries are merged.</div></div>`;
+    if (window.Pro) h += Pro.moreHTML();
     const th = Shell.theme();
     h += `<h2>General</h2><div class="card"><div class="xs mut" style="margin-bottom:4px">Appearance</div><div class="seg theme-seg" style="margin-bottom:12px">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Match phone']].map(([k, l]) => `<button class="${th === k ? 'on' : ''}" onclick="Shell.setTheme('${k}')">${l}</button>`).join('')}</div>${MACROS.unitsHTML()}<div class="xs dim" style="margin-top:8px">Weights are stored in lb; kg is converted for display.</div><button style="width:100%;margin-top:12px" onclick="Shell.startTour()">Replay tutorial</button></div>`;
     h += '<h2>Training</h2>' + GAINS.settingsHTML();
@@ -101,12 +111,13 @@
     h += '<h2>Exercise library</h2>' + GAINS.libraryHTML();
     h += `<h2>Food library (${m.foods.filter(f => !f.hidden).length})</h2>` + MACROS.libraryHTML();
     h += `<div style="height:10px"></div><button class="bad ghost" style="width:100%" onclick="Shell.reset()">Erase all data</button>
-      <div class="xs dim num" style="text-align:center;margin:16px 0 6px">openCOACH · build ${BUILD}</div>`;
+      <div class="xs dim" style="text-align:center;margin:16px 0 2px"><a href="https://noahfrain.github.io/openCOACH/privacy.html" target="_blank" rel="noopener" onclick="if(window.Native){Native.open(this.href);return false}">Privacy</a> · <a href="https://noahfrain.github.io/openCOACH/support.html" target="_blank" rel="noopener" onclick="if(window.Native){Native.open(this.href);return false}">Support</a></div><div class="xs dim num" style="text-align:center;margin:0 0 6px">openCOACH · build ${BUILD}${window.Native ? '' : ` · <a href="#" onclick="Shell.checkUpdate();return false">Check for update</a>`}</div>`;
     return h;
   }
 
   // ---------- backup / import ----------
   function shareOrDownload(name, text, mime) {
+    if (window.Native) { window.Native.shareFile(name, text); return; }
     const file = new File([text], name, { type: mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: name }).catch(() => { });
     else { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
@@ -289,7 +300,34 @@
   Shell.applyTheme();
   if (window.matchMedia) { const mq = matchMedia('(prefers-color-scheme: light)'); const f = () => { if (Shell.theme() === 'auto') Shell.applyTheme(); }; mq.addEventListener ? mq.addEventListener('change', f) : mq.addListener && mq.addListener(f); }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => { });
+  // ---- updates (web/PWA only; the store apps ship their files inside the app) ----
+  // iOS keeps a home-screen app alive in the background for days and never "navigates", so the browser's
+  // own update check rarely runs. Check on every resume and every 30 min; when a new version takes over,
+  // reload at a safe moment (app backgrounded) or offer a button now.
+  if (!window.Native && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      const check = () => reg.update().catch(() => { });
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      setInterval(check, 30 * 60e3);
+    }).catch(() => { });
+    let hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) { hadController = true; return; } // very first install, nothing to refresh
+      Shell.updateReady = true;
+      if (document.visibilityState === 'hidden') { location.reload(); return; }
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') location.reload(); }, { once: true });
+      render();
+    });
+  }
+  Shell.reloadNow = () => location.reload();
+  Shell.checkUpdate = async () => {
+    try {
+      const reg = 'serviceWorker' in navigator && await navigator.serviceWorker.getRegistration();
+      if (!reg) { location.reload(); return; }
+      toast('Checking…'); await reg.update();
+      setTimeout(() => { if (!Shell.updateReady && !reg.installing && !reg.waiting) toast('You\'re on the latest version'); }, 2500);
+    } catch (e) { toast('Couldn\'t check (offline?)'); }
+  };
 
   const moved = moveLegacyBW();
   // people arriving with data (legacy apps on this origin, or a restore) skip the first-run tour
@@ -298,6 +336,7 @@
   if (GAINS.state().active) ui.tab = 'train'; // resume a workout in progress
   if ((+Shell.meta.tutorialSeen || 0) < TUTORIAL_V && !GAINS.state().active) { ui.modal = { type: 'tour', i: 0 }; showStep(tourSteps()[0]); }
   render();
+  if (window.Pro) Pro.init();
   if (Shell.fromLegacy) toast('Brought over your openGAINS / openMACROS data' + (moved ? ` (+${moved} bodyweight)` : ''));
   window.__S = () => ({ gains: GAINS.state(), macros: MACROS.state(), shell: Shell.meta }); // debug hook for tests
 })();
