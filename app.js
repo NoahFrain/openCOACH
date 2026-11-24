@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const Shell = window.Shell, GAINS = window.GAINS, MACROS = window.MACROS, MC = window.MCore;
-  const BUILD = 'v1.0 · 2026-11-22';
+  const BUILD = 'v1.2 · 2026-11-23';
   const TUTORIAL_V = 1; // bump to re-show the tutorial to everyone after a major feature
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,9 +36,18 @@
   function render() {
     const y = window.scrollY;
     const v = ui.tab === 'train' ? GAINS.view() : ui.tab === 'food' ? MACROS.view() : ui.tab === 'body' ? MACROS.view('body') : ui.tab === 'more' ? viewMore() : viewToday();
+    // A running barcode scanner owns a live <video>; rebuilding it would kill the camera mid-scan,
+    // so lift the live node out and drop it back into the fresh markup.
+    // hold the page height through the swap so the scroll position can't clamp and jump (iOS then
+    // repaints fixed bars at the wrong offset for a moment)
+    const appEl = $('#app'); appEl.style.minHeight = appEl.offsetHeight + 'px';
+    const liveScan = document.querySelector('#app .scan-wrap');
+    if (liveScan) liveScan.remove();
     $('#app').innerHTML = v + GAINS.modal() + MACROS.modal() + (ui.modal ? shellModal() : '');
+    if (liveScan) { const slot = document.querySelector('#app .scan-wrap'); if (slot) slot.replaceWith(liveScan); }
     $('#tabs').innerHTML = TABS.map(([k, i, l]) => `<button class="${ui.tab === k ? 'on' : ''}" onclick="Shell.go('${k}')"><span class="ti">${i}</span>${l}</button>`).join('');
     window.scrollTo(0, y);
+    appEl.style.minHeight = '';
   }
   Shell.render = render;
   /** Switch tab from a user tap: closes any open sheet (and the camera) first. */
@@ -84,7 +93,8 @@
       <div class="g2"><button class="pri" onclick="Shell.backup()">Backup JSON</button><label class="btn">Restore / import<input type="file" accept=".json,application/json" style="display:none" onchange="Shell.restore(this)"></label></div>
       <div class="g3" style="margin-top:8px"><button class="sm" onclick="G.expCSV()">Workouts CSV</button><button class="sm" onclick="M.expDiaryCSV()">Food CSV</button><button class="sm" onclick="M.expBioCSV()">Body CSV</button></div>
       <div class="xs mut" style="margin-top:9px">Backup JSON holds everything. Restore also accepts openGAINS and openMACROS backups: each replaces only its own half, and bodyweight entries are merged.</div></div>`;
-    h += `<h2>General</h2><div class="card">${MACROS.unitsHTML()}<div class="xs dim" style="margin-top:8px">Weights are stored in lb; kg is converted for display.</div><button style="width:100%;margin-top:12px" onclick="Shell.startTour()">Replay tutorial</button></div>`;
+    const th = Shell.theme();
+    h += `<h2>General</h2><div class="card"><div class="xs mut" style="margin-bottom:4px">Appearance</div><div class="seg theme-seg" style="margin-bottom:12px">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Match phone']].map(([k, l]) => `<button class="${th === k ? 'on' : ''}" onclick="Shell.setTheme('${k}')">${l}</button>`).join('')}</div>${MACROS.unitsHTML()}<div class="xs dim" style="margin-top:8px">Weights are stored in lb; kg is converted for display.</div><button style="width:100%;margin-top:12px" onclick="Shell.startTour()">Replay tutorial</button></div>`;
     h += '<h2>Training</h2>' + GAINS.settingsHTML();
     h += '<h2>Food databases</h2>' + MACROS.foodDbHTML();
     h += '<h2>Workout history</h2>' + GAINS.historyHTML();
@@ -260,6 +270,24 @@
   const vv = window.visualViewport;
   function fitVV() { if (!vv) return; const r = document.documentElement.style; r.setProperty('--vvh', vv.height + 'px'); r.setProperty('--vvt', vv.offsetTop + 'px'); }
   if (vv) { vv.addEventListener('resize', fitVV); vv.addEventListener('scroll', fitVV); fitVV(); }
+
+  // Keyboard up → hide the tab bar and rest timer. On iOS, position:fixed bars follow the layout viewport
+  // and get stranded mid-screen while the keyboard is open (or right after it closes).
+  const typing = (el) => el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|file|range)$/.test(el.type)));
+  let kbT = null;
+  document.addEventListener('focusin', (e) => { if (typing(e.target)) { clearTimeout(kbT); document.body.classList.add('kb'); } });
+  document.addEventListener('focusout', () => {
+    clearTimeout(kbT);
+    // focus moving input→input fires focusout then focusin; wait a beat before showing the bars again
+    kbT = setTimeout(() => {
+      if (typing(document.activeElement)) return;
+      document.body.classList.remove('kb');
+      window.scrollTo(window.scrollX, window.scrollY); // nudge iOS to re-anchor fixed elements
+    }, 120);
+  });
+
+  Shell.applyTheme();
+  if (window.matchMedia) { const mq = matchMedia('(prefers-color-scheme: light)'); const f = () => { if (Shell.theme() === 'auto') Shell.applyTheme(); }; mq.addEventListener ? mq.addEventListener('change', f) : mq.addListener && mq.addListener(f); }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => { });
 

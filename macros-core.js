@@ -467,6 +467,23 @@ Protein Bar (Standard)|Snacks|1 bar (60g)|60|333|33.3|36.7|11.7|13.3|333|200|150
     };
   }
 
+  /** Training/rest-day targets that keep the weekly average equal to the base plan.
+   *  Training days get +shift kcal; the other (7 - n) days give it back evenly. The swing is
+   *  carried by carbs (4 kcal/g); if rest-day carbs would drop under 20 g, fat takes the remainder.
+   *  Protein and fiber don't move. Returns a copy of the plan with kcal/c/f adjusted and dayKind set. */
+  function dayTargets(plan, opts) {
+    if (!plan) return null;
+    const o = opts || {};
+    const n = clamp(Math.round(+o.trainDays || 4), 1, 6), shift = clamp(Math.round(+o.shift || 0), 0, 1000);
+    if (!o.on || !shift || (o.kind !== 'train' && o.kind !== 'rest')) return Object.assign({}, plan, { dayKind: null, dayShift: 0 });
+    const delta = o.kind === 'train' ? shift : -Math.round(shift * n / (7 - n));
+    const out = Object.assign({}, plan, { kcal: round0(plan.kcal + delta), dayKind: o.kind, dayShift: delta });
+    let carb = (+plan.c || 0) + delta / 4;
+    if (carb < 20) { const short = (20 - carb) * 4; carb = 20; out.f = round0(Math.max(25, (+plan.f || 0) - short / 9)); }
+    out.c = round0(carb);
+    return out;
+  }
+
   /** Weekly check-in proposal comparing current plan vs updated adaptive expenditure & timeline */
   function weeklyCheckIn(profile, goal, weights, logsByDate, foodById, currentPlan, opts) {
     const exp = estimateExpenditure(profile, weights, logsByDate, foodById, opts);
@@ -661,7 +678,7 @@ Protein Bar (Standard)|Snacks|1 bar (60g)|60|333|33.3|36.7|11.7|13.3|333|200|150
     snapFood, entryNutrients, entryName, coachDayStatus, recentFoods,
     barcodeKey, sameBarcode, upcEtoA, barcodeCandidates,
     navyBodyFat, bodyComp, initialTDEE, trendWeights, estimateExpenditure,
-    buildPlan, weeklyCheckIn, diaryToCSV, biometricsToCSV, parseOFFProduct, parseUSDAFood, parseScanPayload,
+    buildPlan, dayTargets, weeklyCheckIn, diaryToCSV, biometricsToCSV, parseOFFProduct, parseUSDAFood, parseScanPayload,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.MCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

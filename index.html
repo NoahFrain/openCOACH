@@ -7,11 +7,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="openCOACH">
-<meta name="theme-color" content="#111114">
+<meta name="theme-color" content="#111114" id="themeColor">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <title>openCOACH</title>
+<script>try{var t=(JSON.parse(localStorage.getItem('opencoach.v1'))||{}).shell||{};t=t.theme||'dark';if(t==='auto')t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme='dark'}</script>
 <style>
 :root{
   --bg:#111114;
@@ -480,6 +481,45 @@ button.star{min-height:34px;width:34px;padding:0;border-radius:9px;font-size:16p
 button.star.on{color:var(--warn);border-color:rgba(217,180,100,.35);background:var(--warn-bg)}
 button:disabled{opacity:.35;pointer-events:none}
 .tabs button{padding-left:0;padding-right:0;min-width:0}
+
+/* ---- Light theme: soft off-white, never pure #fff ---- */
+:root[data-theme=light]{
+  color-scheme:light;
+  --bg:#e8e7ed;--card:#f3f2f6;--card2:#e5e3eb;--card3:#dbd8e3;--line:#d5d2dd;--line2:#bdb8ca;
+  --tx:#1d1b25;--tx2:#3c3947;--mut:#686475;--dim:#8d899a;
+  --acc:#6d56a1;--acc-hi:#55408e;--acc-deep:#ddd4ef;--acc-soft:rgba(109,86,161,.13);
+  --ok:#2c8a62;--ok-bg:rgba(44,138,98,.12);--ok-line:rgba(44,138,98,.35);
+  --warn:#9c6f12;--warn-bg:rgba(176,128,24,.13);--bad:#b4434f;--bad-bg:rgba(180,67,79,.11);
+  --p-col:#6f56ad;--c-col:#3f67a0;--f-col:#9c6f12;
+}
+:root{color-scheme:dark}
+[data-theme=light] .card{box-shadow:0 1px 2px rgba(30,25,45,.05)}
+[data-theme=light] .card.tap:hover{background:#efedf4}
+[data-theme=light] .card.hero{background:linear-gradient(160deg,#ebe6f5 0%,#f3f2f6 65%);border-color:rgba(109,86,161,.3)}
+[data-theme=light] .card.notice{background:rgba(109,86,161,.08);border-color:rgba(109,86,161,.24)}
+[data-theme=light] input:focus,[data-theme=light] select:focus,[data-theme=light] textarea:focus{background:#f7f6fa}
+[data-theme=light] button.ghost:hover,[data-theme=light] .seg button:hover{background:rgba(30,25,45,.05)}
+[data-theme=light] .seg button.on{box-shadow:0 1px 2px rgba(30,25,45,.12)}
+[data-theme=light] .tabs{background:rgba(232,231,237,.9)}
+[data-theme=light] .timer{background:rgba(243,242,246,.96);box-shadow:0 10px 30px rgba(30,25,45,.18)}
+[data-theme=light] .timer.zero{background:rgba(226,242,234,.97)}
+[data-theme=light] .modal{background:rgba(30,26,40,.35)}
+[data-theme=light] .sheet{box-shadow:0 -12px 40px rgba(30,25,45,.18)}
+[data-theme=light] .toast{background:rgba(243,242,246,.97);box-shadow:0 8px 24px rgba(30,25,45,.18)}
+[data-theme=light] .macro-box{background:rgba(255,255,255,.35)}
+[data-theme=light] .setrow.done .chk{color:#f3f2f6}
+[data-theme=light] .setrow.t-D .n,[data-theme=light] .st-ic.t-D{color:#9c4f86}
+[data-theme=light] .setrow.t-M .n,[data-theme=light] .st-ic.t-M{color:#3f67a0}
+[data-theme=light] .fb{background:linear-gradient(180deg,rgba(109,86,161,.07),rgba(109,86,161,.02))}
+[data-theme=light] .chip.P{border-color:rgba(109,86,161,.45)}
+.theme-seg{margin-bottom:0}
+
+/* iOS: fixed bars ride up with the keyboard and can strand mid-screen. Hide them while typing. */
+body.kb .tabs,body.kb #timer{display:none}
+.tabs,.timer{transform:translateZ(0);-webkit-transform:translateZ(0)}
+body.kb #app{padding-bottom:24px}
+/* a prefilled number cleared on focus shows the old value as a hint */
+input.fz::placeholder{color:var(--mut);opacity:.75}
 </style>
 </head>
 <body>

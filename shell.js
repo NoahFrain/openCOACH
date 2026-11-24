@@ -55,6 +55,42 @@
     /** Log today's scale weight (lb) from anywhere in the app. */
     logWeight(lb, dk) { window.MACROS.upsertWeight(lb, dk); Shell.save(); },
 
+    // ---- training vs. rest day (drives nutrition targets when cycling is on) ----
+    /** 'train' | 'rest' for a date: manual mark first, then a logged/started workout, then the fixed weekly schedule; async defaults to rest. */
+    dayKind(dk) {
+      dk = dk || window.MCore.dateKey();
+      const mark = window.MACROS.dayType(dk);
+      if (mark) return mark === 'T' ? 'train' : 'rest';
+      const i = window.GAINS.dayInfo(dk);
+      if (i.trained) return 'train';
+      return i.fixed && i.scheduled.length ? 'train' : 'rest';
+    },
+    trainDaysPerWeek() { return window.GAINS.dayInfo().perWeek || 4; },
+    /** Nutrition targets for a date, with the training/rest-day split applied when it's on. */
+    dayPlan(dk) {
+      const M = window.MACROS, plan = M.plan(); if (!plan) return null;
+      const c = M.cycle();
+      return window.MCore.dayTargets(plan, { on: c.on, shift: c.shift, trainDays: Shell.trainDaysPerWeek(), kind: c.on ? Shell.dayKind(dk) : null });
+    },
+
+    // ---- theme: 'dark' | 'light' | 'auto' (follows the phone) ----
+    theme: () => Shell.meta.theme || 'dark',
+    applyTheme() {
+      let t = Shell.theme();
+      if (t === 'auto') t = window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = t;
+      const mc = document.getElementById('themeColor'); if (mc) mc.content = t === 'light' ? '#e8e7ed' : '#111114';
+    },
+    setTheme(t) { Shell.meta.theme = t; Shell.save(); Shell.applyTheme(); if (Shell.render) Shell.render(); },
+
+    // ---- prefilled numbers clear on focus so typing replaces them; blur with nothing typed puts the value back ----
+    fzIn(el) { if (el.value === '') return; el.dataset.o = el.value; el.dataset.ph = el.placeholder; el.placeholder = el.value; el.value = ''; el.classList.add('fz'); },
+    fzOut(el) {
+      if (el.dataset.o == null) return;
+      if (el.value === '') el.value = el.dataset.o;
+      el.placeholder = el.dataset.ph || ''; delete el.dataset.o; delete el.dataset.ph; el.classList.remove('fz');
+    },
+
     toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2400); },
     // render / go / focus / topbar are installed by app.js
   };

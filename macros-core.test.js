@@ -152,3 +152,16 @@ test('buildPlan macros reconcile to the calorie target', () => {
     near(p.p * 4 + p.c * 4 + p.f * 9, p.kcal, 25, split);
   }
 });
+
+test('dayTargets: training/rest split keeps the weekly average and moves carbs only', () => {
+  const base = { kcal: 2500, p: 200, c: 250, f: 78 };
+  const o = { on: true, shift: 300, trainDays: 4 };
+  const T = C.dayTargets(base, Object.assign({ kind: 'train' }, o)), R = C.dayTargets(base, Object.assign({ kind: 'rest' }, o));
+  assert.equal(T.kcal, 2800); assert.equal(R.kcal, 2100);
+  near((4 * T.kcal + 3 * R.kcal) / 7, 2500, 1, 'weekly average');
+  assert.equal(T.p, 200); assert.equal(T.c, 325); assert.equal(R.c, 150); assert.equal(R.f, 78);
+  assert.equal(C.dayTargets(base, { on: false, kind: 'train', shift: 300 }).kcal, 2500, 'off = base');
+  assert.equal(C.dayTargets(base, Object.assign({ kind: null }, o)).kcal, 2500, 'unknown day = base');
+  const low = C.dayTargets({ kcal: 1800, p: 180, c: 60, f: 70 }, { on: true, shift: 400, trainDays: 5, kind: 'rest' });
+  assert.equal(low.c, 20); assert.ok(low.f < 70, 'fat covers what carbs cannot');
+});
