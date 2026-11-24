@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const Shell = window.Shell, GAINS = window.GAINS, MACROS = window.MACROS, MC = window.MCore;
-  const BUILD = 'v1.3 · 2026-11-23';
+  const BUILD = 'v1.4 · 2026-11-23';
   const TUTORIAL_V = 1; // bump to re-show the tutorial to everyone after a major feature
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,6 +35,14 @@
   };
   function render() {
     const y = window.scrollY;
+    // hard paywall (store apps with subscriptions configured): after the intro tour, nothing but the paywall
+    const pw = window.Pro && Pro.locked() && !(ui.modal && ui.modal.type === 'tour');
+    document.body.classList.toggle('paywall', !!pw);
+    if (pw) {
+      const appEl0 = $('#app'); GAINS.closeModal(); MACROS.closeModal();
+      appEl0.innerHTML = Pro.paywallHTML(GAINS.hasData() || MACROS.hasData()); $('#tabs').innerHTML = '';
+      return;
+    }
     const v = ui.tab === 'train' ? GAINS.view() : ui.tab === 'food' ? MACROS.view() : ui.tab === 'body' ? MACROS.view('body') : ui.tab === 'more' ? viewMore() : viewToday();
     // A running barcode scanner owns a live <video>; rebuilding it would kill the camera mid-scan,
     // so lift the live node out and drop it back into the fresh markup.
@@ -94,6 +102,7 @@
       <div class="g2"><button class="pri" onclick="Shell.backup()">Backup JSON</button><label class="btn">Restore / import<input type="file" accept=".json,application/json" style="display:none" onchange="Shell.restore(this)"></label></div>
       <div class="g3" style="margin-top:8px"><button class="sm" onclick="G.expCSV()">Workouts CSV</button><button class="sm" onclick="M.expDiaryCSV()">Food CSV</button><button class="sm" onclick="M.expBioCSV()">Body CSV</button></div>
       <div class="xs mut" style="margin-top:9px">Backup JSON holds everything. Restore also accepts openGAINS and openMACROS backups: each replaces only its own half, and bodyweight entries are merged.</div></div>`;
+    if (window.Pro) h += Pro.moreHTML();
     const th = Shell.theme();
     h += `<h2>General</h2><div class="card"><div class="xs mut" style="margin-bottom:4px">Appearance</div><div class="seg theme-seg" style="margin-bottom:12px">${[['dark', 'Dark'], ['light', 'Light'], ['auto', 'Match phone']].map(([k, l]) => `<button class="${th === k ? 'on' : ''}" onclick="Shell.setTheme('${k}')">${l}</button>`).join('')}</div>${MACROS.unitsHTML()}<div class="xs dim" style="margin-top:8px">Weights are stored in lb; kg is converted for display.</div><button style="width:100%;margin-top:12px" onclick="Shell.startTour()">Replay tutorial</button></div>`;
     h += '<h2>Training</h2>' + GAINS.settingsHTML();
@@ -327,6 +336,7 @@
   if (GAINS.state().active) ui.tab = 'train'; // resume a workout in progress
   if ((+Shell.meta.tutorialSeen || 0) < TUTORIAL_V && !GAINS.state().active) { ui.modal = { type: 'tour', i: 0 }; showStep(tourSteps()[0]); }
   render();
+  if (window.Pro) Pro.init();
   if (Shell.fromLegacy) toast('Brought over your openGAINS / openMACROS data' + (moved ? ` (+${moved} bodyweight)` : ''));
   window.__S = () => ({ gains: GAINS.state(), macros: MACROS.state(), shell: Shell.meta }); // debug hook for tests
 })();

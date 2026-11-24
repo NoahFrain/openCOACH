@@ -3,7 +3,7 @@
 import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const OUT = 'www';
-const FILES = ['index.html', 'native.js', 'shell.js', 'app.js', 'gains.js', 'gains-core.js', 'macros.js', 'macros-core.js',
+const FILES = ['index.html', 'config.js', 'native.js', 'pro.js', 'shell.js', 'app.js', 'gains.js', 'gains-core.js', 'macros.js', 'macros-core.js',
   'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 const DIRS = ['vendor'];
 

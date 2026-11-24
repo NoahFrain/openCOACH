@@ -27,7 +27,8 @@
     "@capacitor/keyboard": "^8.0.6",
     "@capacitor/local-notifications": "^8.3.1",
     "@capacitor/share": "^8.0.3",
-    "@capacitor/splash-screen": "^8.0.2"
+    "@capacitor/splash-screen": "^8.0.2",
+    "@revenuecat/purchases-capacitor": "^14.1.2"
   },
   "devDependencies": {
     "@capacitor/assets": "^4.0.0",

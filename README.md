@@ -30,6 +30,8 @@ npm run version:set -- 1.4.0
 
 ```
 index.html          page + all CSS
+config.js           release settings: RevenueCat keys, entitlement, links
+pro.js              subscriptions + paywall (window.Pro)
 native.js           iOS/Android bridge (no-op on the web)
 shell.js            storage, units, shared bodyweight (window.Shell). Loads before the modules
 gains-core.js       training logic, pure (window.GCore / node module)
@@ -43,7 +45,7 @@ gains-core.test.js  node gains-core.test.js
 macros-core.test.js node --test macros-core.test.js
 ```
 
-Script order matters: `native → gains-core → macros-core → shell → gains → macros → app`.
+Script order matters: `config → native → gains-core → macros-core → shell → gains → macros → pro → app`.
 
 ## Architecture
 
@@ -285,6 +287,9 @@ node --test macros-core.test.js
 Static files: upload the folder to any HTTPS host (e.g. GitHub Pages), open it in Safari or Chrome, and add it to the home screen. Bump `V` in `sw.js` and `BUILD` in `app.js` on each release.
 
 ## Changelog
+
+### v1.4 — 2026-11-23
+- **openCOACH Pro subscriptions:** hard paywall after the intro tour with a 7-day trial (annual / 6-month / monthly) via RevenueCat → StoreKit / Play Billing. Off on the web and in builds without keys (`config.js`). Offline grace, Restore, Manage, Export my data from the paywall. See `docs/SUBSCRIPTIONS.md`.
 
 ### v1.3 — 2026-11-23
 - **Native apps:** Capacitor 8 iOS + Android projects, CI that builds both on every PR, TestFlight and Play release workflows, privacy and support pages, launch checklist (`docs/LAUNCH.md`).

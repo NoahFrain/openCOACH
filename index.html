@@ -520,18 +520,31 @@ body.kb .tabs,body.kb #timer{display:none}
 body.kb #app{padding-bottom:24px}
 /* a prefilled number cleared on focus shows the old value as a hint */
 input.fz::placeholder{color:var(--mut);opacity:.75}
+
+/* Paywall */
+.pw{max-width:520px;margin:0 auto;padding-bottom:20px}
+.pw-feats{margin:18px 2px 18px}
+.pw-tick{width:24px;height:24px;border-radius:8px;background:var(--acc-soft);color:var(--acc-hi);display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.pw-plan{width:100%;justify-content:flex-start;gap:12px;min-height:62px;padding:12px 14px;margin-bottom:8px;border-radius:14px;background:var(--card)}
+.pw-plan.on{border-color:var(--acc);background:var(--acc-soft)}
+.pw-radio{width:20px;height:20px;border-radius:99px;border:2px solid var(--line2);flex-shrink:0}
+.pw-plan.on .pw-radio{border-color:var(--acc);background:radial-gradient(circle,var(--acc) 0 45%,transparent 50%)}
+body.paywall .tabs,body.paywall #timer{display:none}
+body.paywall #app{padding-bottom:calc(24px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)))}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <div id="timer"></div>
 <nav class="tabs" id="tabs"></nav>
+<script src="config.js"></script>
 <script src="native.js"></script>
 <script src="gains-core.js"></script>
 <script src="macros-core.js"></script>
 <script src="shell.js"></script>
 <script src="gains.js"></script>
 <script src="macros.js"></script>
+<script src="pro.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

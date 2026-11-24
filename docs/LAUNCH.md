@@ -19,7 +19,7 @@ repo root (index.html, *.js)  ──npm run build──▶  www/  ──cap sync
 | iOS → TestFlight pipeline | ✅ `ios.yml`, needs the 4 Apple secrets below |
 | Android → Play pipeline | ✅ `android.yml`, needs the keystore secrets below |
 | Privacy policy / support pages | ✅ `privacy.html`, `support.html` (served by Pages) |
-| Subscriptions (StoreKit / Play Billing) | ❌ not started. See Phase 3 |
+| Subscriptions (StoreKit / Play Billing) | ✅ paywall + RevenueCat wired; store products and keys still to create ([SUBSCRIPTIONS.md](SUBSCRIPTIONS.md)) |
 
 ## Phase 1: accounts (start today; these have waiting periods)
 
@@ -66,14 +66,9 @@ keytool -genkeypair -v -keystore opencoach-upload.jks -alias upload -keyalg RSA 
 - Tag a release (`git tag v1.3.0 && git push --tags`) to run both.
 - Build numbers come from the GitHub run number. Bump the marketing version with `npm run version:set -- 1.4.0`.
 
-## Phase 3: subscriptions (before charging)
+## Phase 3: subscriptions
 
-Digital subscriptions inside the app **must** use Apple In-App Purchase and Google Play Billing.
-- Use **RevenueCat** (`@revenuecat/purchases-capacitor`): one API over StoreKit and Play Billing, receipt validation, entitlements, free until meaningful revenue. Avoids building a server now.
-- Products: monthly, 6-month, annual (one subscription group so users can switch tiers).
-- Paywall requirements Apple checks: price and period shown clearly, **Restore Purchases** button, links to Terms of Use (EULA) and Privacy Policy on the paywall *and* in the App Store description.
-- Decide what's free vs paid. Apple rejects apps whose core features are locked with no way to try them; a free tier or a free trial (introductory offer) avoids that.
-- Offline-first stays true: RevenueCat caches the entitlement on device.
+Built: hard paywall + 7-day trial through RevenueCat (`pro.js`). Store-side setup, product IDs and testing: **[SUBSCRIPTIONS.md](SUBSCRIPTIONS.md)**. The paywall turns on when the RevenueCat keys go into `config.js`.
 
 ## Phase 4: store listing
 
