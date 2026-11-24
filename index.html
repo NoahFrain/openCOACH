@@ -49,10 +49,10 @@ html,body{
   -webkit-font-smoothing:antialiased;
   overscroll-behavior-y:none;
 }
-body{padding:env(safe-area-inset-top) 0 0}
-#app{max-width:600px;margin:0 auto;padding:12px 14px calc(92px + env(safe-area-inset-bottom))}
+body{padding:var(--safe-area-inset-top,env(safe-area-inset-top)) 0 0}
+#app{max-width:600px;margin:0 auto;padding:12px 14px calc(92px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)))}
 /* rest timer floats above the tab bar: leave room so the last controls can scroll clear of it */
-body.has-timer #app{padding-bottom:calc(156px + env(safe-area-inset-bottom))}
+body.has-timer #app{padding-bottom:calc(156px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)))}
 
 /* Header & typography */
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:4px 2px 10px;margin-bottom:2px}
@@ -203,7 +203,7 @@ button.chip{min-height:32px;padding:4px 11px}
   backdrop-filter:blur(18px);
   -webkit-backdrop-filter:blur(18px);
   border-top:1px solid var(--line);
-  padding:6px 8px calc(7px + env(safe-area-inset-bottom));
+  padding:6px 8px calc(7px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)));
   z-index:20;
 }
 .tabs button{
@@ -296,7 +296,7 @@ button.chip{min-height:32px;padding:4px 11px}
 .kpi{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px 11px}
 
 /* First-run tutorial (same component as openMACROS) */
-.sheet.tour{padding-bottom:calc(20px + env(safe-area-inset-bottom));touch-action:pan-y;display:flex;flex-direction:column;min-height:min(560px,86vh)}
+.sheet.tour{padding-bottom:calc(20px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)));touch-action:pan-y;display:flex;flex-direction:column;min-height:min(560px,86vh)}
 .sheet.tour .tour-step{flex:1}
 .tour-step{animation:tourIn .28s var(--ease) both;padding:6px 2px 4px}
 @keyframes tourIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
@@ -324,7 +324,7 @@ button.chip{min-height:32px;padding:4px 11px}
 .timer{
   position:fixed;
   left:14px;right:14px;
-  bottom:calc(72px + env(safe-area-inset-bottom));
+  bottom:calc(72px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)));
   z-index:15;
   background:rgba(28,26,38,.94);
   backdrop-filter:blur(16px);
@@ -365,7 +365,7 @@ button.chip{min-height:32px;padding:4px 11px}
   overflow:auto;
   -webkit-overflow-scrolling:touch;
   border-radius:22px 22px 0 0;
-  padding:10px 16px calc(24px + env(safe-area-inset-bottom));
+  padding:10px 16px calc(24px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)));
   box-shadow:0 -12px 40px rgba(0,0,0,.5);
 }
 .sheet::before{
@@ -380,12 +380,12 @@ button.chip{min-height:32px;padding:4px 11px}
 /* Exercise picker: fixed header, list scrolls; whole sheet fits above the keyboard */
 .sheet.pick{
   display:flex;flex-direction:column;overflow:hidden;
-  height:calc(var(--vvh,100vh) - max(12px, env(safe-area-inset-top)));
+  height:calc(var(--vvh,100vh) - max(12px, var(--safe-area-inset-top,env(safe-area-inset-top))));
   max-height:none;
   padding-bottom:0;
 }
 .pick-hd{flex:none;padding-bottom:8px;border-bottom:1px solid var(--line)}
-.pick-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.pick-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:calc(16px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)))}
 .chips.hscroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-left:-16px;margin-right:-16px;padding:0 16px}
 .chips.hscroll::-webkit-scrollbar{display:none}
 input[type=search]{-webkit-appearance:none;appearance:none}
@@ -440,7 +440,7 @@ td{padding:10px 4px;border-top:1px solid var(--line);vertical-align:middle}
 svg text{fill:var(--dim);font-size:10px;font-variant-numeric:tabular-nums}
 .toast{
   position:fixed;left:50%;transform:translateX(-50%);
-  bottom:calc(94px + env(safe-area-inset-bottom));
+  bottom:calc(94px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)));
   background:rgba(33,31,44,.96);
   border:1px solid var(--line2);
   color:var(--tx);
@@ -526,6 +526,7 @@ input.fz::placeholder{color:var(--mut);opacity:.75}
 <div id="app"></div>
 <div id="timer"></div>
 <nav class="tabs" id="tabs"></nav>
+<script src="native.js"></script>
 <script src="gains-core.js"></script>
 <script src="macros-core.js"></script>
 <script src="shell.js"></script>

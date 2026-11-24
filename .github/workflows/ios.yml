@@ -1,0 +1,69 @@
+# Builds the iOS app on a GitHub-hosted Mac and uploads it to App Store Connect (TestFlight).
+# No Mac needed on your side. Signing is automatic via an App Store Connect API key: Xcode creates
+# and manages the distribution certificate and provisioning profile in the cloud.
+#
+# Secrets (Settings → Secrets and variables → Actions):
+#   APPLE_TEAM_ID         10-character Team ID (developer.apple.com → Membership)
+#   ASC_KEY_ID            App Store Connect API key ID
+#   ASC_ISSUER_ID         Issuer ID shown above the keys list
+#   ASC_KEY_P8_BASE64     the downloaded AuthKey_XXXX.p8, base64-encoded
+# The key needs the Admin role (cloud-managed signing creates certificates).
+name: iOS → TestFlight
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+concurrency: { group: ios-release, cancel-in-progress: false }
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Build web + sync native project
+        run: npm run build && npx cap sync ios
+      - name: Version
+        # marketing version from package.json; build number must rise on every upload
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          BUILD=$(( ${{ github.run_number }} + 100 ))
+          node scripts/set-version.mjs "$VER" "$BUILD"
+          echo "Building $VER ($BUILD)"
+      - name: API key
+        env: { P8: '${{ secrets.ASC_KEY_P8_BASE64 }}' }
+        run: |
+          mkdir -p ~/private_keys
+          echo "$P8" | base64 --decode > ~/private_keys/AuthKey.p8
+          sed -i '' "s/__TEAM_ID__/${{ secrets.APPLE_TEAM_ID }}/" ios/App/ci/ExportOptions.plist
+      - name: Archive
+        working-directory: ios/App
+        run: |
+          xcodebuild -list -project App.xcodeproj
+          xcodebuild archive \
+            -project App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey.p8 \
+            -authenticationKeyID '${{ secrets.ASC_KEY_ID }}' \
+            -authenticationKeyIssuerID '${{ secrets.ASC_ISSUER_ID }}' \
+            DEVELOPMENT_TEAM='${{ secrets.APPLE_TEAM_ID }}' CODE_SIGN_STYLE=Automatic
+      - name: Export + upload to App Store Connect
+        working-directory: ios/App
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist ci/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey.p8 \
+            -authenticationKeyID '${{ secrets.ASC_KEY_ID }}' \
+            -authenticationKeyIssuerID '${{ secrets.ASC_ISSUER_ID }}'
+      - name: Clean up key
+        if: always()
+        run: rm -rf ~/private_keys

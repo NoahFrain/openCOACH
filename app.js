@@ -63,7 +63,7 @@
 
   // ---------- Today ----------
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isStandalone = () => !!(window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches));
+  const isStandalone = () => !!(window.Native || window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches));
   function viewToday() {
     const now = new Date();
     let h = Shell.topbar() + `<h1 style="margin-bottom:2px">Today</h1><div class="mut xs" style="margin:0 2px 14px">${now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>`;
@@ -102,12 +102,13 @@
     h += '<h2>Exercise library</h2>' + GAINS.libraryHTML();
     h += `<h2>Food library (${m.foods.filter(f => !f.hidden).length})</h2>` + MACROS.libraryHTML();
     h += `<div style="height:10px"></div><button class="bad ghost" style="width:100%" onclick="Shell.reset()">Erase all data</button>
-      <div class="xs dim num" style="text-align:center;margin:16px 0 6px">openCOACH · build ${BUILD}${window.Native ? '' : ` · <a href="#" onclick="Shell.checkUpdate();return false">Check for update</a>`}</div>`;
+      <div class="xs dim" style="text-align:center;margin:16px 0 2px"><a href="https://noahfrain.github.io/openCOACH/privacy.html" target="_blank" rel="noopener" onclick="if(window.Native){Native.open(this.href);return false}">Privacy</a> · <a href="https://noahfrain.github.io/openCOACH/support.html" target="_blank" rel="noopener" onclick="if(window.Native){Native.open(this.href);return false}">Support</a></div><div class="xs dim num" style="text-align:center;margin:0 0 6px">openCOACH · build ${BUILD}${window.Native ? '' : ` · <a href="#" onclick="Shell.checkUpdate();return false">Check for update</a>`}</div>`;
     return h;
   }
 
   // ---------- backup / import ----------
   function shareOrDownload(name, text, mime) {
+    if (window.Native) { window.Native.shareFile(name, text); return; }
     const file = new File([text], name, { type: mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) navigator.share({ files: [file], title: name }).catch(() => { });
     else { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }

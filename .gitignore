@@ -1,0 +1,22 @@
+node_modules/
+www/
+# native build output
+ios/App/build/
+ios/App/DerivedData/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+android/app/build/
+android/build/
+android/.gradle/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/local.properties
+android/keystore.properties
+*.jks
+*.keystore
+*.p8
+*.mobileprovision
+*.p12
+.DS_Store

@@ -110,6 +110,7 @@
     return new Date(C.parseDateKey(dk)).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   };
   function shareOrDownload(name, text, mime) {
+    if (window.Native) { window.Native.shareFile(name, text); S.lastBackup = Date.now(); save(); return; }
     const file = new File([text], name, { type: mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       navigator.share({ files: [file], title: name }).catch(() => { });
@@ -727,7 +728,7 @@
       <div class="row" style="margin-bottom:8px"><b class="sm sp">Open Food Facts</b><span class="chip ok-chip">No key needed</span></div>
       <div class="xs mut" style="margin-bottom:10px">Open Food Facts is free and keyless (an account there isn't used by this app). Its search is limited to about 10 per minute; barcode lookups aren't. When it's down, searches fall back to USDA if you've added a key below.</div>
       <label class="xs mut">USDA FoodData Central API key (optional — stored only on this device)<input type="password" placeholder="Paste your free data.gov / FDC API key" value="${esc(S.settings.usdaKey || '')}" onchange="M.setting('usdaKey',this.value.trim())"></label>
-      <div class="xs mut" style="margin-top:8px">Get a free key at <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">fdc.nal.usda.gov/api-key-signup</a>. Any online food you log or scan is cached locally for offline use.</div>
+      <div class="xs mut" style="margin-top:8px">Get a free key at <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener" onclick="if(window.Native){Native.open(this.href);return false}">fdc.nal.usda.gov/api-key-signup</a>. Any online food you log or scan is cached locally for offline use.</div>
     </div>`;
   }
   function libraryHTML() {

@@ -145,6 +145,7 @@
   /** Give each plan slot a stable id so a session item can find its slot even after swaps/reorders. */
   function ensurePids(m) { let ch = false; m.days.forEach(d => d.items.forEach(it => { if (!it.pid) { it.pid = C.uid(); ch = true; } })); return ch; }
   function shareOrDownload(name, text, mime) {
+    if (window.Native) { window.Native.shareFile(name, text); S.lastBackup = Date.now(); save(); return; }
     const file = new File([text], name, { type: mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       navigator.share({ files: [file], title: name }).catch(() => { });
@@ -158,14 +159,14 @@
 
   // ---------- rest timer / wake lock ----------
   let timerEnd = 0, timerIv = null, wake = null;
-  function startTimer(sec) { document.body.classList.add('has-timer'); timerBeeped = false; timerEnd = Date.now() + sec * 1000; clearInterval(timerIv); timerIv = setInterval(tickTimer, 250); tickTimer(); }
-  function stopTimer() { clearInterval(timerIv); timerEnd = 0; $('#timer').innerHTML = ''; document.body.classList.remove('has-timer'); }
+  function startTimer(sec) { if (window.Native) window.Native.timerArm(sec); document.body.classList.add('has-timer'); timerBeeped = false; timerEnd = Date.now() + sec * 1000; clearInterval(timerIv); timerIv = setInterval(tickTimer, 250); tickTimer(); }
+  function stopTimer() { if (window.Native) window.Native.timerDisarm(); clearInterval(timerIv); timerEnd = 0; $('#timer').innerHTML = ''; document.body.classList.remove('has-timer'); }
   function tickTimer() {
     const left = Math.ceil((timerEnd - Date.now()) / 1000), el = $('#timer');
     if (!timerEnd) return;
     const mm = Math.floor(Math.abs(left) / 60), ss = String(Math.abs(left) % 60).padStart(2, '0');
     el.innerHTML = `<div class="timer ${left <= 0 ? 'zero' : ''}"><span class="mut xs" style="text-transform:uppercase;letter-spacing:.08em">Rest</span><b>${left < 0 ? '+' : ''}${mm}:${ss}</b><span class="sp"></span><button class="sm" onclick="G.tAdd(30)">+30s</button><button class="sm ghost" onclick="G.tStop()">✕</button></div>`;
-    if (left <= 0 && !timerBeeped) { timerBeeped = true; beep(); }
+    if (left <= 0 && !timerBeeped) { timerBeeped = true; beep(); if (window.Native) window.Native.success(); }
     if (left < -60) stopTimer();
   }
   // short chime when rest is up (only audible while the app is open; iOS web apps can't vibrate)
@@ -177,7 +178,7 @@
       [0, 0.18].forEach(dt => { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(0.0001, actx.currentTime + dt); g.gain.exponentialRampToValueAtTime(0.25, actx.currentTime + dt + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dt + 0.15); o.connect(g).connect(actx.destination); o.start(actx.currentTime + dt); o.stop(actx.currentTime + dt + 0.16); });
     } catch (e) { }
   }
-  async function lock() { try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); } catch (e) { } }
+  async function lock() { if (window.Native) window.Native.keepAwake(true); try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); } catch (e) { } }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.active) lock(); });
 
   // ---------- charts ----------
@@ -650,7 +651,7 @@
     chk(i, j) {
       const it = S.active.items[i], s = it.sets[j]; s.done = !s.done;
       if (s.done) {
-        unlockAudio();
+        unlockAudio(); if (window.Native) window.Native.tap();
         if (s.w === '') s.w = 0; if (s.r === '') s.r = 0;
         // warm-ups rest short, drop sets go straight on, myo-rep clusters rest briefly
         const base = restOf(EX[it.exId]), sec = s.t === 'W' ? Math.min(60, base) : s.t === 'D' ? 0 : s.t === 'M' ? 20 : base;
@@ -730,11 +731,11 @@
       a.bw = curBW() || undefined;
       a.items.forEach(it => { it.sets = it.sets.filter(s => s.done); });
       a.items = a.items.filter(it => it.sets.length); a.end = Date.now();
-      S.sessions.push(a); S.active = null; stopTimer(); try { wake && wake.release(); } catch (e) { }
+      S.sessions.push(a); S.active = null; stopTimer(); if (window.Native) window.Native.keepAwake(false); try { wake && wake.release(); } catch (e) { }
       save(); toast(fbMsg.length ? 'Saved · sets next week: ' + fbMsg.join(', ') : 'Workout saved'); render(); window.scrollTo(0, 0);
     },
-    discard(skip) { if (skip || confirm('Discard this workout?')) { S.active = null; stopTimer(); save(); render(); } },
-    tAdd(s) { timerEnd += s * 1000; tickTimer(); }, tStop: stopTimer,
+    discard(skip) { if (skip || confirm('Discard this workout?')) { S.active = null; stopTimer(); if (window.Native) window.Native.keepAwake(false); save(); render(); } },
+    tAdd(s) { timerEnd += s * 1000; timerBeeped = false; if (window.Native) window.Native.timerArm(Math.ceil((timerEnd - Date.now()) / 1000)); tickTimer(); }, tStop: stopTimer,
     nextWeek() { const m = activeMeso(); if (m.week >= m.weeks) { G.endMeso(); return; } if (confirm('Advance to week ' + (m.week + 1) + '?')) { m.week++; ui.pw = null; save(); render(); } },
     endMeso() { const m = activeMeso(); if (m && confirm('Archive "' + m.name + '"? Your logged data stays.')) { m.ended = Date.now(); S.activeMesoId = null; save(); render(); } },
     // --- builder
