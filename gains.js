@@ -66,6 +66,20 @@
   let EX = {}; function reindex() { EX = Object.fromEntries(S.exercises.map(e => [e.id, e])); } reindex();
   const activeMeso = () => S.mesos.find(m => m.id === S.activeMesoId && !m.ended) || null;
   const prioOf = (m, muscle) => (m && m.prio && m.prio[muscle]) || 'N';
+  // ---- weekly schedule: 'fixed' pins each training day to a weekday (day.dow 0=Sun..6=Sat); anything else is asynchronous
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const isFixed = (m) => !!(m && m.sched === 'fixed');
+  const dkOf = (t) => window.MCore.dateKey(t);
+  const dowOf = (dk) => new Date(dk + 'T12:00:00').getDay();
+  /** Training-day facts for a date: scheduled days (fixed mode), whether a workout was logged/started, sessions per week. */
+  function dayInfo(dk) {
+    dk = dk || dkOf(Date.now());
+    const m = activeMeso(), fixed = isFixed(m);
+    const scheduled = fixed ? m.days.filter(d => d.dow === dowOf(dk)) : [];
+    const trained = S.sessions.some(s => dkOf(s.start) === dk) || !!(S.active && dkOf(S.active.start) === dk);
+    const perWeek = !m ? null : fixed ? new Set(m.days.map(d => d.dow).filter(x => Number.isInteger(x))).size || m.days.length : m.days.length;
+    return { hasMeso: !!m, fixed, scheduled, trained, perWeek };
+  }
   function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2200); }
 
   // ---------- helpers ----------
@@ -179,7 +193,7 @@
     let g = '';
     for (let i = 0; i <= 4; i++) {
       const v = y0 + (y1 - y0) * i / 4, y = Y(v);
-      g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#262531" stroke-width="1" ${i ? 'stroke-dasharray="3 3"' : ''}/><text x="${L - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${(o.yFmt || (v => Math.round(v)))(v)}</text>`;
+      g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:var(--line)" stroke-width="1" ${i ? 'stroke-dasharray="3 3"' : ''}/><text x="${L - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${(o.yFmt || (v => Math.round(v)))(v)}</text>`;
     }
     const xs = [...new Set(pts.map(p => p.x))].sort((a, b) => a - b); const step = Math.ceil(xs.length / 6);
     xs.forEach((x, i) => { if (i % step === 0 || i === xs.length - 1) g += `<text x="${X(x).toFixed(1)}" y="${H - 6}" text-anchor="middle">${o.xLab ? o.xLab(x) : x}</text>`; });
@@ -191,7 +205,7 @@
         g += `<path d="${d} L${X(last.x).toFixed(1)} ${baseY} L${X(first.x).toFixed(1)} ${baseY} Z" fill="url(#${gid})"/>`;
       }
       g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
-        + s.pts.map(p => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3" fill="${s.color}" stroke="#18181d" stroke-width="1.5"/>`).join('');
+        + s.pts.map(p => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3" fill="${s.color}" style="stroke:var(--card)" stroke-width="1.5"/>`).join('');
     });
     const leg = series.length > 1 ? `<div class="chips" style="margin-top:8px">${series.map(s => `<span class="chip"><i style="display:inline-block;width:7px;height:7px;border-radius:99px;background:${s.color};margin-right:5px"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
     return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">${defs}${g}</svg>${leg}`;
@@ -213,7 +227,8 @@
     h += '<h2>Sessions</h2>';
     m.days.forEach(d => {
       const done = doneDays.has(d.id), sets = d.items.reduce((a, it) => a + C.plannedSets(it.sets, prioOf(m, EX[it.exId] && EX[it.exId].muscle), m.week, m), 0);
-      h += `<div class="card row"><div class="sp"><b style="font-size:15px">${esc(d.name)}</b><div class="mut xs num" style="margin-top:3px">${d.items.length} exercises · ${sets} sets</div></div>${done ? '<span class="chip ok-chip">✓ Done</span>' : ''}<button class="${done ? 'sm' : 'pri sm'}" onclick="G.start('${d.id}')">${done ? 'Redo' : 'Start'}</button></div>`;
+      const wd = isFixed(m) && Number.isInteger(d.dow) ? `<span class="chip ${d.dow === new Date().getDay() ? 'sel' : ''}">${DOW[d.dow]}</span>` : '';
+      h += `<div class="card row"><div class="sp"><b style="font-size:15px">${esc(d.name)}</b><div class="mut xs num" style="margin-top:3px">${d.items.length} exercises · ${sets} sets</div></div>${wd}${done ? '<span class="chip ok-chip">✓ Done</span>' : ''}<button class="${done ? 'sm' : 'pri sm'}" onclick="G.start('${d.id}')">${done ? 'Redo' : 'Start'}</button></div>`;
     });
     if (doneDays.size >= m.days.length) h += m.week < m.weeks ? `<button class="pri" style="width:100%;margin-top:6px" onclick="G.nextWeek()">Advance to Week ${m.week + 1} →</button>` : `<button class="pri" style="width:100%;margin-top:6px" onclick="G.endMeso()">Complete &amp; archive mesocycle</button>`;
     else if (m.week < m.weeks) h += `<button class="ghost" style="width:100%;margin-top:4px" onclick="G.nextWeek()">Skip to Week ${m.week + 1}</button>`;
@@ -256,9 +271,9 @@
       it.sets.forEach((st, j) => {
         const lab = st.t ? TLBL[st.t] : String(++wn);
         h += `<div class="setrow ${st.done ? 'done' : ''} ${st.t ? 't-' + st.t : ''}"><button class="n" title="Set type" onclick="G.stAsk(${i},${j})">${lab}</button>
-          <input id="w_${i}_${j}" type="number" inputmode="decimal" step="any" value="${fw(st.w)}" placeholder="0" oninput="G.sv(${i},${j},'w',this.value)">
-          <input id="r_${i}_${j}" type="number" inputmode="numeric" value="${st.r === '' ? '' : st.r}" oninput="G.sv(${i},${j},'r',this.value)">
-          <input id="i_${i}_${j}" type="number" inputmode="numeric" min="0" max="10" value="${st.rir === '' || st.rir == null ? '' : st.rir}" placeholder="${st.t === 'W' ? '' : '–'}" oninput="G.sv(${i},${j},'rir',this.value)">
+          <input id="w_${i}_${j}" type="number" inputmode="decimal" step="any" value="${fw(st.w)}" placeholder="0" onfocus="Shell.fzIn(this)" onblur="Shell.fzOut(this)" oninput="G.sv(${i},${j},'w',this.value)">
+          <input id="r_${i}_${j}" type="number" inputmode="numeric" value="${st.r === '' ? '' : st.r}" onfocus="Shell.fzIn(this)" onblur="Shell.fzOut(this)" oninput="G.sv(${i},${j},'r',this.value)">
+          <input id="i_${i}_${j}" type="number" inputmode="numeric" min="0" max="10" value="${st.rir === '' || st.rir == null ? '' : st.rir}" placeholder="${st.t === 'W' ? '' : '–'}" onfocus="Shell.fzIn(this)" onblur="Shell.fzOut(this)" oninput="G.sv(${i},${j},'rir',this.value)">
           <button class="chk" onclick="G.chk(${i},${j})">${st.done ? '✓' : '○'}</button></div>`;
       });
       h += `<div class="row" style="margin-top:10px;gap:6px"><button class="sm" onclick="G.addSet(${i})">+ Set</button><button class="sm ghost" onclick="G.rmSet(${i})">− Set</button><input style="min-height:34px;padding:6px 10px;font-size:13px" placeholder="Exercise note…" value="${esc(it.note)}" oninput="G.note(${i},this.value)"></div></div>`;
@@ -290,6 +305,10 @@
     const sets = a.items.filter(it => EX[it.exId] && EX[it.exId].muscle === mu).flatMap(it => it.sets.filter(st => st.t !== 'W'));
     if (!f && !(sets.length && sets.every(st => st.done))) return '';
     const cur = f || {};
+    if (f && f.closed && C.fbComplete(f)) {
+      const pv = fbPreview(mu), net = pv ? pv.changes.reduce((x, c) => x + c.to - c.from, 0) : 0;
+      return `<div class="fb fb-min"><span class="xs mut sp">✓ ${esc(mu)} rated${pv ? ` · <b class="num" style="color:var(--tx2)">${net > 0 ? '+' + net : net < 0 ? net : '±0'} set${Math.abs(net) === 1 ? '' : 's'}</b> next week` : ''}</span><button class="sm ghost" onclick="G.fbOpen('${esc(mu)}')">Edit</button></div>`;
+    }
     let h = `<div class="fb"><div class="row" style="margin-bottom:4px"><b class="sm sp">How did ${esc(mu)} feel?</b><button class="sm ghost" onclick="G.fbSkip('${esc(mu)}',true)">Skip</button></div>`;
     Object.entries(C.FB_Q).forEach(([k, q]) => {
       h += `<div class="fb-q"><div class="xs mut">${q.label}</div><div class="fb-opts">${q.opts.map(([v, l]) => `<button class="chip ${cur[k] === v ? 'sel' : ''}" onclick="G.fb('${esc(mu)}','${k}','${v}')">${l}</button>`).join('')}</div></div>`;
@@ -304,6 +323,7 @@
       h += `<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><span class="badge ${cls} num">${net > 0 ? '+' + net : net < 0 ? net : '±0'} set${Math.abs(net) === 1 ? '' : 's'} next week</span><span class="xs mut num">${txt}</span></div>`
         + `<div class="xs dim" style="margin-top:4px">Applies to this workout's plan when you finish.</div>`;
     }
+    if (C.fbComplete(cur)) h += `<button class="ok" style="width:100%;margin-top:12px" onclick="G.fbDone('${esc(mu)}')">Done</button>`;
     return h + '</div>';
   }
 
@@ -319,6 +339,12 @@
         <div class="mut xs" style="margin:5px 0 11px">Started ${dstr(m.start)}${m.deload ? ' · Deload final week' : ''}</div>
         <div class="chips">${[...new Set(m.days.flatMap(d => d.items.map(i => EX[i.exId] && EX[i.exId].muscle)))].filter(Boolean).map(mu => `<span class="chip ${prioOf(m, mu)}">${esc(mu)} · ${{ P: 'Priority', N: 'Normal', M: 'Maintain' }[prioOf(m, mu)]}</span>`).join('')}</div>
         <div class="row" style="margin-top:14px"><button class="sm" onclick="G.editMeso()">Edit plan</button><button class="sm" onclick="G.nextWeek()">Next week</button><span class="sp"></span><button class="sm ghost bad" onclick="G.endMeso()">End</button></div></div>`;
+      const fx = isFixed(m);
+      h += `<h2>Schedule</h2><div class="card"><div class="seg" style="margin-bottom:10px"><button class="${fx ? 'on' : ''}" onclick="G.schedMode('fixed')">Fixed weekdays</button><button class="${fx ? '' : 'on'}" onclick="G.schedMode('async')">Asynchronous</button></div>`
+        + (fx ? m.days.map(d => `<div class="row sm" style="padding:6px 0;border-top:1px solid var(--line)"><span class="sp" style="color:var(--tx2)">${esc(d.name)}</span><select style="width:auto;min-height:36px;padding:4px 10px" onchange="G.dow('${d.id}',this.value)"><option value="">—</option>${[1, 2, 3, 4, 5, 6, 0].map(k => `<option value="${k}" ${d.dow === k ? 'selected' : ''}>${DOW[k]}</option>`).join('')}</select></div>`).join('')
+          + '<div class="xs mut" style="margin-top:8px">Today shows the workout pinned to today, or a rest day. Training/rest-day calories (Food → Plan &amp; Coach) follow this schedule.</div>'
+          : '<div class="xs mut">Workouts run in order, whenever you train. Mark today as a training or rest day on the Today tab to switch between training- and rest-day calories.</div>')
+        + '</div>';
       h += '<h2>Training days</h2>';
       m.days.forEach(d => {
         h += `<div class="card"><div class="row" style="margin-bottom:8px"><b class="sp">${esc(d.name)}</b><span class="xs dim num">${d.items.length} lifts</span></div>`
@@ -495,8 +521,20 @@
     const todayDone = S.sessions.filter(s => C.fmtDate(s.start) === C.fmtDate(Date.now()));
     const head = `<div class="xs mut" style="text-transform:uppercase;letter-spacing:.08em">${esc(m.name)} · ${dl ? 'Deload' : 'Week ' + m.week + '/' + m.weeks} · ${doneDays.size}/${m.days.length} done</div>`;
     if (!next) return `<div class="card"><div class="row"><div class="sp">${head}<b>Week complete</b>${todayDone.length ? `<div class="xs mut" style="margin-top:3px">Trained today: ${esc(todayDone.map(s => s.name).join(', '))}</div>` : ''}</div><button class="pri sm" onclick="G.go('train')">${m.week < m.weeks ? 'Next week' : 'Finish block'}</button></div></div>`;
-    const sets = next.items.reduce((a, it) => a + C.plannedSets(it.sets, prioOf(m, EX[it.exId] && EX[it.exId].muscle), m.week, m), 0);
-    return `<div class="card"><div class="row"><div class="sp">${head}<b style="font-size:16px">Next: ${esc(next.name)}</b><div class="xs mut num" style="margin-top:3px">${next.items.length} exercises · ${sets} sets${todayDone.length ? ' · trained today: ' + esc(todayDone.map(s => s.name).join(', ')) : ''}</div></div><button class="pri sm" onclick="G.start('${next.id}');G.go('train')">Start</button></div></div>`;
+    let pick = next, label = 'Next';
+    if (isFixed(m)) {
+      const td = new Date().getDay(), todays = m.days.filter(d => d.dow === td && !doneDays.has(d.id));
+      if (todays.length) { pick = todays[0]; label = 'Today'; }
+      else {
+        // rest day (or today's already done): point at the next pinned, unfinished workout this week
+        const ahead = m.days.filter(d => Number.isInteger(d.dow) && !doneDays.has(d.id)).sort((a, b) => ((a.dow - td + 7) % 7) - ((b.dow - td + 7) % 7));
+        const up = ahead[0] || next;
+        const restTitle = m.days.some(d => d.dow === td) ? 'Done for today' : 'Rest day';
+        return `<div class="card"><div class="row"><div class="sp">${head}<b style="font-size:16px">${restTitle}</b><div class="xs mut num" style="margin-top:3px">Up next: ${esc(up.name)}${Number.isInteger(up.dow) ? ' · ' + DOW[up.dow] : ''}${todayDone.length ? ' · trained today: ' + esc(todayDone.map(s => s.name).join(', ')) : ''}</div></div><button class="sm" onclick="G.start('${up.id}');G.go('train')">Start anyway</button></div></div>`;
+      }
+    }
+    const sets = pick.items.reduce((a, it) => a + C.plannedSets(it.sets, prioOf(m, EX[it.exId] && EX[it.exId].muscle), m.week, m), 0);
+    return `<div class="card"><div class="row"><div class="sp">${head}<b style="font-size:16px">${label}: ${esc(pick.name)}</b><div class="xs mut num" style="margin-top:3px">${pick.items.length} exercises · ${sets} sets${todayDone.length ? ' · trained today: ' + esc(todayDone.map(s => s.name).join(', ')) : ''}</div></div><button class="pri sm" onclick="G.start('${pick.id}');G.go('train')">Start</button></div></div>`;
   }
 
   // --- modals
@@ -650,6 +688,8 @@
     },
     // --- per-muscle feedback
     fb(mu, k, v) { const a = S.active; a.fb = a.fb || {}; const f = a.fb[mu] = Object.assign({}, a.fb[mu], { [k]: v }); delete f.skip; save(); render(); },
+    fbDone(mu) { const f = S.active && (S.active.fb || {})[mu]; if (f) { f.closed = true; save(); render(); } },
+    fbOpen(mu) { const f = S.active && (S.active.fb || {})[mu]; if (f) { delete f.closed; save(); render(); } },
     fbSkip(mu, on) { const a = S.active; a.fb = a.fb || {}; if (on) a.fb[mu] = { skip: true }; else delete a.fb[mu]; save(); render(); },
     // --- bodyweight (one entry per day; re-logging the same day replaces it)
     logBW(id) {
@@ -733,6 +773,21 @@
       d.days = days; d.prio = clone(w.prio); d.fromWiz = w.type;
       d.name = SPLITS[w.type] + ' ' + w.days + 'd';
       ui.wizSaved = clone(w); ui.draft = d; ui.wiz = null; save(); render(); window.scrollTo(0, 0);
+    },
+    schedMode(mode) {
+      const m = activeMeso(); if (!m) return;
+      m.sched = mode === 'fixed' ? 'fixed' : 'async';
+      // first switch to fixed: spread the days Mon/Tue/Thu/Fri-style so there's a sensible starting point
+      if (m.sched === 'fixed' && !m.days.some(d => Number.isInteger(d.dow))) {
+        const lay = { 1: [1], 2: [1, 4], 3: [1, 3, 5], 4: [1, 2, 4, 5], 5: [1, 2, 3, 5, 6], 6: [1, 2, 3, 4, 5, 6], 7: [0, 1, 2, 3, 4, 5, 6] }[Math.min(7, m.days.length)] || [];
+        m.days.forEach((d, k) => { if (lay[k] != null) d.dow = lay[k]; });
+      }
+      save(); render();
+    },
+    dow(dayId, v) {
+      const m = activeMeso(), d = m && m.days.find(x => x.id === dayId); if (!d) return;
+      if (v === '') delete d.dow; else d.dow = +v;
+      save(); render();
     },
     editMeso() { ui.draft = Object.assign(clone(activeMeso()), { editing: true }); render(); window.scrollTo(0, 0); },
     cancelDraft() { ui.draft = null; ui.wiz = null; render(); },
@@ -820,6 +875,7 @@
     takeLegacyBW() { const l = S._legacyBW; delete S._legacyBW; return l || null; },
     hasData: () => !!(S.sessions.length || S.mesos.length),
     hasActiveMeso: () => !!activeMeso(),
+    dayInfo,
     settingsHTML, historyHTML, libraryHTML, todayCard,
   };
 })();

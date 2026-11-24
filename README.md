@@ -10,7 +10,7 @@ Training, nutrition and bodyweight in one offline-first web app for iPhone and A
 | **Train** | Workout · Mesocycle · Progress. The sub-nav hides mid-workout and inside the mesocycle wizard |
 | **Food** | Log · Plan & Coach |
 | **Body** | Weigh-ins, trend weight, body composition, adaptive expenditure, intake history |
-| **More** | Backup / restore, CSV exports, units, training settings, food databases, workout history, exercise library, food library, replay tutorial, erase all |
+| **More** | Appearance (dark / light / match phone), backup / restore, CSV exports, units, training settings, food databases, workout history, exercise library, food library, replay tutorial, erase all |
 
 ## Files
 
@@ -38,7 +38,7 @@ Script order matters: `gains-core → macros-core → shell → gains → macros
   - Each module exposes a small interface (`view`, `modal`, `closeModal`, `busy`, `tab`, `state`, `replace`, `reset`, plus sections for Today and More). `app.js` composes the page from those.
   - A module's `render()` calls `Shell.render()`, which draws the active tab plus any open sheet.
   - A module moving itself to another of its views calls `Shell.focus()`. A tab tap calls `Shell.go()`, which closes open sheets and stops the camera.
-- **Storage.** One `localStorage` key, `opencoach.v1`: `{ v, app, gains, macros, shell: { tutorialSeen, lastBackup } }`. `Shell.save()` writes both modules.
+- **Storage.** One `localStorage` key, `opencoach.v1`: `{ v, app, gains, macros, shell: { tutorialSeen, lastBackup, theme } }`. `Shell.save()` writes both modules.
 - **Units.** Every weight is stored in **lb**. The unit setting (More → General, shared with tape measurements) changes display only. Training converts at the edges: `fw()` to display, `fromDisp()` when parsing input. Step sizes and the empty bar (45 lb) are lb-based, so kg users see converted steps (e.g. 2.3 kg).
 - **One bodyweight.** The weigh-in log is the only bodyweight store. Training uses its smoothed trend (`Shell.bwAt(t)`: trend on or before that date, else the first day). That trend drives bodyweight and assisted lifts, 1RM, recommendations and the CSV. Logging bodyweight from a lift card writes today's weigh-in.
 
@@ -48,7 +48,7 @@ Script order matters: `gains-core → macros-core → shell → gains → macros
 gains: {
   settings: { trigger, dropBelow, rest, warm },
   exercises: [ { id, name, muscle, type, load, min, max, inc, rest? } ],   // load: ext | bw | assist
-  mesos: [ { id, name, start, weeks, deload, week, prio, days: [ { id, name, items: [ { pid, exId, sets, min, max } ] } ] } ],
+  mesos: [ { id, name, start, weeks, deload, week, prio, sched?, days: [ { id, name, dow?, items: [ { pid, exId, sets, min, max } ] } ] } ],
   activeMesoId, active,                                                    // active = workout in progress
   sessions: [ { id, mesoId, week, dayId, name, start, end, note, bw, fb, items: [ { exId, pid, min, max, note, sets: [ { w, r, rir, done, t } ] } ] } ],
 }
@@ -62,10 +62,11 @@ gains: {
 
 ```js
 macros: {
-  settings: { unit, waterUnit, showRemaining, waterGoalOz, usdaKey },     // usdaKey never exported
+  settings: { unit, waterUnit, showRemaining, waterGoalOz, usdaKey, cycle, cycleShift },     // usdaKey never exported
   profile, goal, plan, lastCheckIn,
   foods:   [ { id, name, cat, srvLabel, srvG, kcal, p, c, f, fiber, na, k, ca, fe, vitd, barcode?, source?, fav?, hidden? } ],  // per 100 g
   recipes: [ { id, name, servings, items: [ { foodId, grams } ] } ],
+  dayType: { 'YYYY-MM-DD': 'T' | 'R' },                                   // manual training/rest marks
   logs:    { 'YYYY-MM-DD': [ { id, meal, foodId, grams, snap } | { id, meal, quick: true, name, kcal, p, c, f, fiber } ] },
   dayMeta: { 'YYYY-MM-DD': 'done' | 'skip' },
   water:   { 'YYYY-MM-DD': oz },
@@ -269,6 +270,16 @@ node --test macros-core.test.js
 Static files: upload the folder to any HTTPS host (e.g. GitHub Pages), open it in Safari or Chrome, and add it to the home screen. Bump `V` in `sw.js` and `BUILD` in `app.js` on each release.
 
 ## Changelog
+
+### v1.2 — 2026-11-23
+- **Light / dark / match-phone theme** (More → General). Light is a soft off-white, not pure white. Set before first paint, so no flash.
+- **Weekly schedule** (Train → Mesocycle → Schedule): *Fixed weekdays* pins each training day to a weekday; *Asynchronous* runs days in order whenever you train. In fixed mode Today shows today's workout or a rest day with what's next, and session cards show their weekday.
+- **Training / rest-day nutrition** (Food → Plan & Coach): training days get +N kcal from carbs, rest days give it back so the weekly average equals the plan. Day type: manual mark → a workout logged/started that day → the fixed schedule → rest. Toggle on Today and on each Log day. `dayTargets` in `macros-core.js`; coaching math still uses the base plan.
+- **Volume feedback collapses:** a **Done** button appears once all four questions are answered; the card folds to a one-line summary with **Edit**.
+- **Set inputs clear on focus:** the prefilled number shows as a hint; leaving the box empty puts it back (`Shell.fzIn/fzOut`).
+- **Tab bar no longer strands mid-screen on iOS:** tab bar and rest timer hide while the keyboard is up; renders hold page height so the scroll can't jump.
+- **Scanner:** the live camera survives re-renders; clear messages for blocked permission / busy / missing camera; falls back to a back-camera id when `facingMode` is refused; new **Photo of barcode** option decodes a still image (works even when the live camera can't start).
+- **Food search:** timeouts, one retry, readable errors (rate limit, overload, blocker/offline) instead of Safari's raw parse errors; Open Food Facts failures fall back to USDA when a key is saved. Barcode lookups distinguish "not found" from "couldn't reach".
 
 ### v1.0 — 2026-11-22
 - Initial release: training and nutrition in one app with five tabs (Today, Train, Food, Body, More), one store, one backup and one tutorial

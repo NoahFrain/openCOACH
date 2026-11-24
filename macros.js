@@ -26,7 +26,7 @@
   function fresh() {
     return {
       v: SV,
-      settings: { unit: 'lb', waterUnit: 'oz', showRemaining: true, waterGoalOz: 96, usdaKey: '' },
+      settings: { unit: 'lb', waterUnit: 'oz', showRemaining: true, waterGoalOz: 96, usdaKey: '', cycle: false, cycleShift: 250 },
       profile: { sex: 'male', age: 30, heightIn: 70, startWeightLb: 180, bfPct: '', activity: 'moderate' },
       goal: null,
       plan: null,
@@ -37,6 +37,7 @@
       water: {},
       weights: [],
       dayMeta: {},
+      dayType: {},   // 'YYYY-MM-DD': 'T' training | 'R' rest — manual marks; unmarked days follow the training schedule
       lastBackup: null,
     };
   }
@@ -47,6 +48,7 @@
     m.settings = Object.assign(fresh().settings, j.settings || {});
     m.profile = Object.assign(fresh().profile, j.profile || {});
     m.dayMeta = j.dayMeta || {};
+    m.dayType = j.dayType || {};
     delete m.tutorialSeen;
     m.foods = Array.isArray(j.foods) ? j.foods : C.seedFoods();
     // New seed foods from later builds appear without touching user edits
@@ -131,30 +133,53 @@
   }
   const findLocalBarcode = (cands) => S.foods.find(f => f.barcode && cands.some(c => C.sameBarcode(f.barcode, c)));
 
+  /** fetch → JSON with a timeout and errors a person can act on (Safari's raw messages are useless). */
+  async function fetchJSON(url, label, ms) {
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const to = setTimeout(() => { if (ctl) ctl.abort(); }, ms || 15000);
+    let res;
+    try { res = await fetch(url, ctl ? { signal: ctl.signal, cache: 'no-store' } : { cache: 'no-store' }); }
+    catch (e) {
+      const why = e && e.name === 'AbortError' ? `${label} didn't respond in time`
+        : navigator.onLine === false ? 'You\'re offline' : `Couldn't reach ${label}. Check your connection, or turn off any content blocker / VPN for this site`;
+      throw Object.assign(new Error(why), { net: true });
+    } finally { clearTimeout(to); }
+    if (res.status === 429) throw Object.assign(new Error(`${label} rate limit (about 10 searches a minute). Wait a minute and retry`), { code: 429 });
+    if (res.status === 401 || res.status === 403) throw Object.assign(new Error(`${label} refused the request (${res.status})`), { code: res.status });
+    if (!res.ok) throw Object.assign(new Error(`${label} is overloaded right now (${res.status}). Try again shortly`), { code: res.status });
+    const txt = await res.text();
+    try { return JSON.parse(txt); } catch (e) { throw new Error(`${label} sent back a busy page instead of data. Try again shortly`); }
+  }
+  const OFF_FIELDS = 'code,product_name,product_name_en,brands,serving_size,serving_quantity,nutriments';
+
+  // Open Food Facts needs no key. Full-text search only exists on the legacy /cgi/search.pl endpoint,
+  // which is rate-limited (~10/min) and slow under load, so: one retry on a transient failure, then give up.
   async function searchOFF(query) {
-    const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=20&fields=code,product_name,product_name_en,brands,serving_size,serving_quantity,nutriments`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Open Food Facts error (' + res.status + ')');
-    const data = await res.json();
+    const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=24&fields=${OFF_FIELDS}`;
+    let data;
+    try { data = await fetchJSON(url, 'Open Food Facts', 15000); }
+    catch (e) {
+      if (e.code === 429 || e.code === 401 || e.code === 403) throw e;
+      await new Promise(r => setTimeout(r, 1200));
+      data = await fetchJSON(url + '&_r=1', 'Open Food Facts', 20000);
+    }
     return (data.products || []).map(C.parseOFFProduct).filter(Boolean);
   }
 
   async function lookupBarcodeOFF(code) {
-    const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=code,product_name,product_name_en,brands,serving_size,serving_quantity,nutriments`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.status !== 1 || !data.product) return null;
+    const data = await fetchJSON(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${OFF_FIELDS}`, 'Open Food Facts', 12000)
+      .catch(e => { if (e.net || e.code === 429 || e.code >= 500) throw e; return null; }); // 404 = not in the database
+    if (!data || data.status !== 1 || !data.product) return null;
     return C.parseOFFProduct(data.product);
   }
 
   async function searchUSDA(query) {
     const key = (S.settings.usdaKey || '').trim();
-    if (!key) throw new Error('Add your free USDA API key in Data → Settings first');
+    if (!key) throw new Error('Add your free USDA API key in More → Food databases first');
     const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(key)}&query=${encodeURIComponent(query)}&pageSize=20`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(res.status === 403 ? 'Invalid USDA API key' : 'USDA API error (' + res.status + ')');
-    const data = await res.json();
+    let data;
+    try { data = await fetchJSON(url, 'USDA', 15000); }
+    catch (e) { if (e.code === 403 || e.code === 401) throw new Error('USDA rejected the API key. Re-paste it in More → Food databases'); throw e; }
     return (data.foods || []).map(C.parseUSDAFood).filter(Boolean);
   }
 
@@ -163,11 +188,12 @@
     const cands = C.barcodeCandidates(code);
     const local = findLocalBarcode(cands);
     if (local) { if (local.hidden) { local.hidden = false; save(); } return { food: local, from: 'Local' }; }
+    let netErr = null;
     for (const c of cands.slice(0, 2)) {
       try {
         const off = await lookupBarcodeOFF(c);
         if (off) { if (!off.barcode) off.barcode = c; return { food: cacheOnlineFood(off), from: 'Open Food Facts' }; }
-      } catch (e) { break; } // network failure — don't retry other forms
+      } catch (e) { netErr = e; break; } // network failure — don't retry other forms
     }
     if ((S.settings.usdaKey || '').trim()) {
       try {
@@ -176,7 +202,7 @@
         if (exact) return { food: cacheOnlineFood(exact), from: 'USDA' };
       } catch (e) { }
     }
-    return null;
+    return netErr ? { err: netErr.message } : null;
   }
 
   // ---------- Camera Barcode / QR Scanner (Native BarcodeDetector + iOS Fallback) ----------
@@ -206,6 +232,33 @@
     });
   }
 
+  /** Turn getUserMedia / html5-qrcode failures into something a person can fix. */
+  function camErr(e) {
+    const n = (e && e.name) || '', msg = String((e && e.message) || e || '');
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (n === 'NotAllowedError' || n === 'PermissionDeniedError' || /permission|denied|not allowed/i.test(msg))
+      return ios ? 'Camera access is blocked. On iPhone: Settings → Apps → Safari → Camera → Ask/Allow, then close and reopen the app. Or use Photo below.' : 'Camera access is blocked for this site. Allow it in the browser\'s site settings, or use Photo below.';
+    if (n === 'NotFoundError' || /no camera|not found/i.test(msg)) return 'No camera found. Use Photo or type the barcode below.';
+    if (n === 'NotReadableError' || /in use|could not start/i.test(msg)) return 'The camera is busy in another app. Close it and try again, or use Photo below.';
+    if (/secure|https/i.test(msg)) return 'The live camera needs the app served over HTTPS. Use Photo or type the barcode below.';
+    return 'Live camera couldn\'t start (' + (msg || n || 'unknown') + '). Use Photo or type the barcode below.';
+  }
+
+  /** Decode a barcode/QR from a still photo: works everywhere, including when the live camera won't start. */
+  async function decodePhoto(file) {
+    if ('BarcodeDetector' in window) {
+      try {
+        const bmp = await createImageBitmap(file);
+        const codes = await new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code'] }).detect(bmp);
+        if (codes && codes.length && codes[0].rawValue) return codes[0].rawValue;
+      } catch (e) { }
+    }
+    await loadScriptOnce('vendor/html5-qrcode.min.js');
+    const inst = new window.Html5Qrcode('scan_file_tmp', { verbose: false });
+    try { const r = await inst.scanFileV2(file, false); return r && r.decodedText; }
+    finally { try { inst.clear(); } catch (e) { } }
+  }
+
   async function startScanner() {
     stopScanner();
     const my = scanSession;
@@ -213,7 +266,7 @@
     const setSt = (msg) => { if (alive() && $('#scan_status')) $('#scan_status').textContent = msg; };
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setSt('Camera unavailable here (requires HTTPS). Enter barcode manually below.');
+      setSt(window.isSecureContext === false ? 'The live camera needs HTTPS. Use Photo or type the barcode below.' : 'Live camera isn\'t available in this browser. Use Photo or type the barcode below.');
       return;
     }
 
@@ -244,6 +297,7 @@
       } catch (e) {
         if (!alive()) return;
         stopScanner();
+        if (e && (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError')) { if ($('#scan_status')) $('#scan_status').textContent = camErr(e); return; }
         return startScannerFallback(scanSession); // continue under the new session
       }
     }
@@ -267,23 +321,28 @@
       if (F) cfg.formatsToSupport = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.QR_CODE];
       inst = new window.Html5Qrcode('scan_fallback', cfg);
       html5Scanner = inst;
-      await inst.start(
-        { facingMode: 'environment' },
-        { fps: 12, qrbox: (w, h) => ({ width: Math.round(w * 0.78), height: Math.round(Math.min(h * 0.5, w * 0.45)) }) },
-        (decoded) => {
-          if (scanBusy || !decoded || !alive()) return;
-          scanBusy = true;
-          M.handleScan(decoded);
-        },
-        () => { }
-      );
+      const onCode = (decoded) => {
+        if (scanBusy || !decoded || !alive()) return;
+        scanBusy = true;
+        M.handleScan(decoded);
+      };
+      const qcfg = { fps: 12, qrbox: (w, h) => ({ width: Math.max(60, Math.round(w * 0.78)), height: Math.max(60, Math.round(Math.min(h * 0.5, w * 0.45))) }) };
+      try { await inst.start({ facingMode: 'environment' }, qcfg, onCode, () => { }); }
+      catch (e1) {
+        if (!alive() || /permission|denied|NotAllowed/i.test(String(e1 && (e1.name || '') + (e1.message || e1)))) throw e1;
+        // some devices refuse the facingMode constraint: pick the back camera by id instead
+        const cams = await window.Html5Qrcode.getCameras();
+        if (!cams || !cams.length) throw e1;
+        const back = cams.find(c => /back|rear|environment/i.test(c.label)) || cams[cams.length - 1];
+        await inst.start(back.id, qcfg, onCode, () => { });
+      }
       if (!alive()) { inst.stop().then(() => inst.clear()).catch(() => { }); return; } // closed while starting
       const wrap = document.querySelector('.scan-wrap'); if (wrap) wrap.classList.add('h5'); // html5-qrcode draws its own frame
       setSt('Point camera at a food barcode or QR code');
     } catch (e) {
       if (!alive()) { if (inst) inst.stop().catch(() => { }); return; }
       stopScanner();
-      if ($('#scan_status')) $('#scan_status').textContent = 'Camera scanner unavailable (' + (e && e.message ? e.message : e || 'permission denied') + '). Enter barcode manually below.';
+      if ($('#scan_status')) $('#scan_status').textContent = camErr(e);
     }
   }
 
@@ -301,7 +360,7 @@
     let defs = '', g = '';
     for (let i = 0; i <= 4; i++) {
       const v = y0 + (y1 - y0) * i / 4, y = Y(v);
-      g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#262531" stroke-width="1" ${i ? 'stroke-dasharray="3 3"' : ''}/><text x="${L - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${(o.yFmt || (v => r1(v)))(v)}</text>`;
+      g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:var(--line)" stroke-width="1" ${i ? 'stroke-dasharray="3 3"' : ''}/><text x="${L - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${(o.yFmt || (v => r1(v)))(v)}</text>`;
     }
     const xs = [...new Set(pts.map(p => p.x))].sort((a, b) => a - b); const step = Math.max(1, Math.ceil(xs.length / 5));
     xs.forEach((x, i) => { if (i % step === 0 || i === xs.length - 1) { const anc = i === xs.length - 1 ? 'end' : (i === 0 ? 'start' : 'middle'); g += `<text x="${X(x).toFixed(1)}" y="${H - 6}" text-anchor="${anc}">${o.xLab ? o.xLab(x) : x}</text>`; } });
@@ -315,7 +374,7 @@
       }
       g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2.2}" ${s.dash ? 'stroke-dasharray="4 3"' : ''} stroke-linecap="round" stroke-linejoin="round" opacity="${s.opacity || 1}"/>`;
       if (s.dots !== false) {
-        g += s.pts.map(p => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${s.dotR || 2.8}" fill="${s.color}" stroke="#18181d" stroke-width="1.3"/>`).join('');
+        g += s.pts.map(p => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${s.dotR || 2.8}" fill="${s.color}" style="stroke:var(--card)" stroke-width="1.3"/>`).join('');
       }
     });
     const leg = series.length > 1 ? `<div class="chips" style="margin-top:8px">${series.map(s => `<span class="chip"><i style="display:inline-block;width:7px;height:7px;border-radius:99px;background:${s.color};margin-right:5px"></i>${esc(s.name)}</span>`).join('')}</div>` : '';
@@ -332,7 +391,7 @@
     let g = '';
     for (let i = 0; i <= 3; i++) {
       const v = maxV * i / 3, y = Y(v);
-      g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#262531" stroke-width="1" ${i ? 'stroke-dasharray="3 3"' : ''}/><text x="${L - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end">${r0(v)}</text>`;
+      g += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:var(--line)" stroke-width="1" ${i ? 'stroke-dasharray="3 3"' : ''}/><text x="${L - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end">${r0(v)}</text>`;
     }
     items.forEach((it, i) => {
       const x = L + i * step + (step - bw) / 2, y = Y(it.val), h = Math.max(0, (H - B) - y);
@@ -354,7 +413,7 @@
     const dk = ui.date;
     const entries = S.logs[dk] || [];
     const tot = C.dayTotals(entries, FOOD);
-    const plan = S.plan;
+    const plan = Shell.dayPlan(dk);
     const remMode = S.settings.showRemaining && !!plan;
     const checkDue = S.goal && S.plan && (!S.lastCheckIn || Date.now() - S.lastCheckIn >= 7 * 86400000);
 
@@ -372,7 +431,7 @@
       h += `<div class="card hero">
         <div class="row" style="align-items:flex-end">
           <div class="sp">
-            <div class="xs mut" style="text-transform:uppercase;letter-spacing:.08em">${remMode ? 'Calories remaining' : 'Calories consumed'}</div>
+            <div class="xs mut" style="text-transform:uppercase;letter-spacing:.08em">${remMode ? 'Calories remaining' : 'Calories consumed'}${plan.dayKind ? ` · ${plan.dayKind === 'train' ? 'Training' : 'Rest'} day` : ''}</div>
             <div class="num" style="font-size:32px;font-weight:700;line-height:1.1;margin-top:3px;color:${over ? 'var(--warn)' : 'var(--tx)'}">${kcalDisp} <span class="sm mut" style="font-weight:500">/ ${plan.kcal} kcal</span></div>
           </div>
           <span class="chip sel num">${r0(tot.kcal)} in</span>
@@ -383,6 +442,7 @@
           ${macroBox('Carbs', tot.c, plan.c, 'var(--c-col)', remMode)}
           ${macroBox('Fat', tot.f, plan.f, 'var(--f-col)', remMode)}
         </div>
+        ${plan.dayKind ? dayKindSwitch(dk) : ''}
       </div>`;
     } else {
       h += `<div class="card hero"><div class="row"><div class="sp"><b style="font-size:17px">Set your nutrition goal</b><div class="sm mut" style="margin-top:3px">Get an adaptive calorie &amp; macro plan based on your body stats, goal, and timeline.</div></div><button class="pri sm" onclick="M.startWiz()">Set goal</button></div>
@@ -474,6 +534,28 @@
     return `<div class="macro-box"><div class="m-head"><span class="mut">${label}</span><span class="dim num">${target}g</span></div><div class="m-val" style="color:${shown < 0 ? 'var(--warn)' : 'var(--tx)'}">${shown}g</div><div class="bar" style="margin-top:6px"><i style="width:${pct}%;background:${color}"></i></div></div>`;
   }
 
+  /** Training / rest toggle for a date. Tapping the active side clears the manual mark (back to auto). */
+  function dayKindSwitch(dk) {
+    const k = Shell.dayKind(dk), mark = S.dayType[dk];
+    const auto = !mark ? '<span class="xs dim">auto</span>' : `<button class="sm ghost" style="min-height:32px;padding:4px 8px" onclick="M.setDayType('${dk}','')">Reset</button>`;
+    return `<div class="row" style="margin-top:12px;gap:6px"><div class="seg sp" style="margin:0"><button class="${k === 'train' ? 'on' : ''}" onclick="M.setDayType('${dk}','T')">Training day</button><button class="${k === 'rest' ? 'on' : ''}" onclick="M.setDayType('${dk}','R')">Rest day</button></div>${auto}</div>`;
+  }
+  function cycleCardHTML() {
+    const p = S.plan; if (!p) return '';
+    const on = !!S.settings.cycle, n = Shell.trainDaysPerWeek(), info = window.GAINS.dayInfo();
+    let h = `<h2>Training &amp; rest days</h2><div class="card"><div class="row"><div class="sp"><b class="sm">Separate training / rest-day targets</b><div class="xs mut" style="margin-top:2px">More carbs on training days, fewer on rest days. Weekly average stays at ${p.kcal} kcal.</div></div><input type="checkbox" ${on ? 'checked' : ''} onchange="M.cycleSet('on',this.checked)"></div>`;
+    if (on) {
+      const T = C.dayTargets(p, { on: true, shift: S.settings.cycleShift, trainDays: n, kind: 'train' }), R = C.dayTargets(p, { on: true, shift: S.settings.cycleShift, trainDays: n, kind: 'rest' });
+      h += `<label class="xs mut" style="display:block;margin-top:12px">Extra kcal on training days<input type="number" inputmode="numeric" step="25" value="${S.settings.cycleShift}" onchange="M.cycleSet('shift',this.value)"></label>
+        <div class="g2" style="margin-top:10px">
+          <div class="macro-box"><div class="xs mut">Training day</div><b class="num">${T.kcal} kcal</b><div class="xs mut num">P ${T.p} · C ${T.c} · F ${T.f}</div></div>
+          <div class="macro-box"><div class="xs mut">Rest day</div><b class="num">${R.kcal} kcal</b><div class="xs mut num">P ${R.p} · C ${R.c} · F ${R.f}</div></div>
+        </div>
+        <div class="xs mut" style="margin-top:8px">${!info.hasMeso ? `No active training block: assuming ${n} training days a week. Mark each day on Today.` : info.fixed ? `Following your fixed schedule (${n} training days/week). Override any day on Today or the Log.` : `Asynchronous block (${n} sessions/week): mark each day as training or rest on Today. Logging a workout marks the day automatically.`}</div>`;
+    }
+    return h + '</div>';
+  }
+
   // ---------- Plan & Coaching Tab ----------
   function viewPlan() {
     if (ui.wiz) return viewWiz();
@@ -499,6 +581,7 @@
       </div>`;
     }
 
+    h += cycleCardHTML();
     h += `<h2>Saved Meals &amp; Recipes</h2><div class="card">`;
     if (!S.recipes.length) {
       h += `<div class="mut sm" style="margin-bottom:10px">Save frequently eaten meals or recipes to log multi-ingredient dishes in one tap.</div>`;
@@ -641,7 +724,8 @@
   }
   function foodDbHTML() {
     return `<div class="card">
-      <div class="row" style="margin-bottom:8px"><b class="sm sp">Open Food Facts</b><span class="chip ok-chip">Connected · No key</span></div>
+      <div class="row" style="margin-bottom:8px"><b class="sm sp">Open Food Facts</b><span class="chip ok-chip">No key needed</span></div>
+      <div class="xs mut" style="margin-bottom:10px">Open Food Facts is free and keyless (an account there isn't used by this app). Its search is limited to about 10 per minute; barcode lookups aren't. When it's down, searches fall back to USDA if you've added a key below.</div>
       <label class="xs mut">USDA FoodData Central API key (optional — stored only on this device)<input type="password" placeholder="Paste your free data.gov / FDC API key" value="${esc(S.settings.usdaKey || '')}" onchange="M.setting('usdaKey',this.value.trim())"></label>
       <div class="xs mut" style="margin-top:8px">Get a free key at <a href="https://fdc.nal.usda.gov/api-key-signup" target="_blank" rel="noopener">fdc.nal.usda.gov/api-key-signup</a>. Any online food you log or scan is cached locally for offline use.</div>
     </div>`;
@@ -655,14 +739,14 @@
   }
   /** Today-tab card: intake vs. targets, or goal setup */
   function todayCard() {
-    const dk = C.dateKey(), tot = C.dayTotals(S.logs[dk] || [], FOOD), plan = S.plan;
+    const dk = C.dateKey(), tot = C.dayTotals(S.logs[dk] || [], FOOD), plan = Shell.dayPlan(dk);
     if (!plan) return `<div class="card"><div class="row"><div class="sp"><div class="xs mut" style="text-transform:uppercase;letter-spacing:.08em">Nutrition</div><b>Set your nutrition goal</b><div class="xs mut num" style="margin-top:3px">${r0(tot.kcal)} kcal logged today</div></div><button class="pri sm" onclick="M.startWiz();Shell.go('food')">Set goal</button></div></div>`;
     const pct = C.clamp((tot.kcal / Math.max(1, plan.kcal)) * 100, 0, 100), over = tot.kcal > plan.kcal * 1.04;
     return `<div class="card"><div class="row" style="align-items:flex-end"><div class="sp"><div class="xs mut" style="text-transform:uppercase;letter-spacing:.08em">Nutrition today</div>
         <div class="num" style="font-size:24px;font-weight:700;line-height:1.15;margin-top:3px;color:${over ? 'var(--warn)' : 'var(--tx)'}">${r0(tot.kcal)} <span class="sm mut" style="font-weight:500">/ ${plan.kcal} kcal</span></div></div>
         <button class="pri sm" onclick="M.logToday()">Log food</button></div>
       <div class="prog" style="margin:10px 0 12px"><i style="width:${pct}%;${over ? 'background:var(--warn)' : ''}"></i></div>
-      <div class="g3">${macroBox('Protein', tot.p, plan.p, 'var(--p-col)', false)}${macroBox('Carbs', tot.c, plan.c, 'var(--c-col)', false)}${macroBox('Fat', tot.f, plan.f, 'var(--f-col)', false)}</div></div>`;
+      <div class="g3">${macroBox('Protein', tot.p, plan.p, 'var(--p-col)', false)}${macroBox('Carbs', tot.c, plan.c, 'var(--c-col)', false)}${macroBox('Fat', tot.f, plan.f, 'var(--f-col)', false)}</div>${plan.dayKind ? dayKindSwitch(dk) : ''}</div>`;
   }
   const checkInDue = () => !!(S.goal && S.plan && (!S.lastCheckIn || Date.now() - S.lastCheckIn >= 7 * 86400000));
 
@@ -688,6 +772,8 @@
           <div class="scan-line"></div>
         </div>
         <div id="scan_status" class="xs mut" style="text-align:center;margin-bottom:12px">Starting camera…</div>
+        <div id="scan_file_tmp" style="display:none"></div>
+        <label class="btn" style="width:100%;margin-bottom:8px">📷 Photo of barcode<input type="file" accept="image/*" capture="environment" style="display:none" onchange="M.scanPhoto(this)"></label>
         <div class="row" style="gap:6px">
           <input id="scan_manual" placeholder="Or type barcode / paste QR…" onkeydown="if(event.key==='Enter')M.manualScan()">
           <button class="pri sm" onclick="M.manualScan()">Lookup</button>
@@ -893,6 +979,8 @@
     if (m.loading) return '<div class="mut sm" style="padding:18px 0;text-align:center">Searching database…</div>';
     if (m.err) return `<div class="card notice sm" style="color:var(--warn)">${esc(m.err)}</div>`;
     const list = m.online || [];
+    const note = m.note ? `<div class="card notice xs" style="color:var(--warn);margin-bottom:8px">${esc(m.note)}</div>` : '';
+    if (list.length && note) return note + list.map((f, idx) => `<div class="li" onclick="M.pickOnline(${idx})"><div class="sp"><div class="sm">${esc(f.name)}</div><div class="xs mut num">${f.kcal} kcal / 100g · P ${f.p} · C ${f.c} · F ${f.f}</div></div><span class="src-tag ${f.source === 'USDA' ? 'usda' : ''}">${esc(f.source)}</span></div>`).join('');
     if (!list.length) return `<div class="mut sm" style="padding:14px 0">Type a food name (e.g. "Fairlife milk", "avocado") and tap <b>Search</b>.</div>`;
     return list.map((f, idx) => `<div class="li" onclick="M.pickOnline(${idx})"><div class="sp"><div class="sm">${esc(f.name)}</div><div class="xs mut num">${f.kcal} kcal / 100g · P ${f.p} · C ${f.c} · F ${f.f}</div></div><span class="src-tag ${f.source === 'USDA' ? 'usda' : ''}">${esc(f.source)}</span></div>`).join('');
   }
@@ -915,6 +1003,12 @@
     shiftDay(d) { ui.date = C.addDays(ui.date, d); render(); },
     toggleRem() { S.settings.showRemaining = !S.settings.showRemaining; save(); render(); },
     addWater(dir) { S.water[ui.date] = Math.max(0, r2((S.water[ui.date] || 0) + dir * waterStep())); save(); render(); },
+    setDayType(dk, v) { if (v) S.dayType[dk] = v; else delete S.dayType[dk]; save(); render(); },
+    cycleSet(k, v) {
+      if (k === 'on') S.settings.cycle = !!v;
+      else { const n = Math.round(+v); if (!(n >= 0 && n <= 1000)) { toast('Enter 0–1000 kcal'); render(); return; } S.settings.cycleShift = n; }
+      save(); render();
+    },
     dayMeta(v) { if (v) S.dayMeta[ui.date] = v; else delete S.dayMeta[ui.date]; save(); render(); },
     setMeal(v) { if (ui.modal) ui.modal.meal = v; },
     toggleFav(id) { const f = FOOD[id]; if (!f) return; f.fav = !f.fav; save(); render(); },
@@ -933,6 +1027,16 @@
       setTimeout(startScanner, 60);
     },
     scanMeal(m) { if (ui.modal) ui.modal.meal = m; },
+    async scanPhoto(el) {
+      const file = el && el.files && el.files[0]; if (!file) return;
+      const st = $('#scan_status'); if (st) st.textContent = 'Reading photo…';
+      try {
+        const code = await decodePhoto(file);
+        if (code) { scanBusy = true; M.handleScan(code); }
+        else if ($('#scan_status')) $('#scan_status').textContent = 'No barcode found in that photo. Get closer, fill the frame, avoid glare.';
+      } catch (e) { if ($('#scan_status')) $('#scan_status').textContent = 'No barcode found in that photo. Get closer, fill the frame, avoid glare.'; }
+      el.value = '';
+    },
     manualScan() { const v = ($('#scan_manual')?.value || '').trim(); if (v) M.handleScan(v); },
     async handleScan(raw) {
       const meal = (ui.modal && ui.modal.meal) || defaultMeal();
@@ -952,8 +1056,9 @@
           ui.modal = { type: 'add', meal, sub: 'foods', src: 'local', picked: hit.food.id, qty: 1, unitMode: 'srv' };
           toast(`Found in ${hit.from}`); render();
         } else {
-          toast(`Barcode ${parsed.code} not found`);
-          ui.modal = { type: 'add', meal, sub: 'foods', src: 'off', q: parsed.code, online: [], err: `No match for barcode ${parsed.code}. Try searching by product name or add a custom food.` };
+          const why = hit && hit.err ? `Couldn't look up ${parsed.code}: ${hit.err}` : `No match for barcode ${parsed.code}. Try searching by product name or add a custom food.`;
+          toast(hit && hit.err ? 'Lookup failed' : `Barcode ${parsed.code} not found`);
+          ui.modal = { type: 'add', meal, sub: 'foods', src: 'off', q: parsed.code, online: [], err: why };
           render();
         }
         return;
@@ -980,12 +1085,16 @@
     async runOnlineSearch() {
       const m = ui.modal; if (!m) return;
       const q = (m.q || '').trim(); if (!q) { toast('Enter a search term'); return; }
-      m.loading = true; m.err = ''; m.online = []; render();
+      m.loading = true; m.err = ''; m.note = ''; m.online = []; render();
       try {
         m.online = m.src === 'usda' ? await searchUSDA(q) : await searchOFF(q);
         if (!m.online.length) m.err = 'No results found. Try a shorter or simpler search term.';
       } catch (e) {
         m.err = e.message || 'Online search failed (check connection)';
+        // Open Food Facts down or throttled: answer from USDA if there's a key, and say so
+        if (m.src === 'off' && (S.settings.usdaKey || '').trim()) {
+          try { const alt = await searchUSDA(q); if (alt.length) { m.online = alt; m.note = m.err + ' — showing USDA results instead.'; m.err = ''; } } catch (e2) { }
+        }
       }
       m.loading = false; render();
     },
@@ -1230,6 +1339,10 @@
     replace(j) { const key = S.settings.usdaKey; S = load(j); if (!S.settings.usdaKey) S.settings.usdaKey = key; reindex(); ui.date = C.dateKey(); return S; },
     reset() { S = fresh(); reindex(); ui.date = C.dateKey(); },
     unit: () => S.settings.unit === 'kg' ? 'kg' : 'lb',
+    plan: () => S.plan,
+    cycle: () => ({ on: !!S.settings.cycle, shift: S.settings.cycleShift }),
+    dayType: (dk) => S.dayType[dk] || '',
+    dayKindSwitch,
     weights: () => S.weights,
     upsertWeight,
     hasData: () => !!(Object.keys(S.logs).length || S.weights.length || S.goal),
