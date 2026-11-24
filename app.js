@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const Shell = window.Shell, GAINS = window.GAINS, MACROS = window.MACROS, MC = window.MCore;
-  const BUILD = 'v1.2 · 2026-11-23';
+  const BUILD = 'v1.3 · 2026-11-23';
   const TUTORIAL_V = 1; // bump to re-show the tutorial to everyone after a major feature
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -43,7 +43,8 @@
     const appEl = $('#app'); appEl.style.minHeight = appEl.offsetHeight + 'px';
     const liveScan = document.querySelector('#app .scan-wrap');
     if (liveScan) liveScan.remove();
-    $('#app').innerHTML = v + GAINS.modal() + MACROS.modal() + (ui.modal ? shellModal() : '');
+    const upd = Shell.updateReady ? `<div class="card notice sm row" style="margin-bottom:10px"><span class="sp"><b>New version ready.</b> Reload to update (your data stays).</span><button class="sm pri" onclick="Shell.reloadNow()">Reload</button></div>` : '';
+    $('#app').innerHTML = upd + v + GAINS.modal() + MACROS.modal() + (ui.modal ? shellModal() : '');
     if (liveScan) { const slot = document.querySelector('#app .scan-wrap'); if (slot) slot.replaceWith(liveScan); }
     $('#tabs').innerHTML = TABS.map(([k, i, l]) => `<button class="${ui.tab === k ? 'on' : ''}" onclick="Shell.go('${k}')"><span class="ti">${i}</span>${l}</button>`).join('');
     window.scrollTo(0, y);
@@ -101,7 +102,7 @@
     h += '<h2>Exercise library</h2>' + GAINS.libraryHTML();
     h += `<h2>Food library (${m.foods.filter(f => !f.hidden).length})</h2>` + MACROS.libraryHTML();
     h += `<div style="height:10px"></div><button class="bad ghost" style="width:100%" onclick="Shell.reset()">Erase all data</button>
-      <div class="xs dim num" style="text-align:center;margin:16px 0 6px">openCOACH · build ${BUILD}</div>`;
+      <div class="xs dim num" style="text-align:center;margin:16px 0 6px">openCOACH · build ${BUILD}${window.Native ? '' : ` · <a href="#" onclick="Shell.checkUpdate();return false">Check for update</a>`}</div>`;
     return h;
   }
 
@@ -289,7 +290,34 @@
   Shell.applyTheme();
   if (window.matchMedia) { const mq = matchMedia('(prefers-color-scheme: light)'); const f = () => { if (Shell.theme() === 'auto') Shell.applyTheme(); }; mq.addEventListener ? mq.addEventListener('change', f) : mq.addListener && mq.addListener(f); }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => { });
+  // ---- updates (web/PWA only; the store apps ship their files inside the app) ----
+  // iOS keeps a home-screen app alive in the background for days and never "navigates", so the browser's
+  // own update check rarely runs. Check on every resume and every 30 min; when a new version takes over,
+  // reload at a safe moment (app backgrounded) or offer a button now.
+  if (!window.Native && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      const check = () => reg.update().catch(() => { });
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      setInterval(check, 30 * 60e3);
+    }).catch(() => { });
+    let hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) { hadController = true; return; } // very first install, nothing to refresh
+      Shell.updateReady = true;
+      if (document.visibilityState === 'hidden') { location.reload(); return; }
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') location.reload(); }, { once: true });
+      render();
+    });
+  }
+  Shell.reloadNow = () => location.reload();
+  Shell.checkUpdate = async () => {
+    try {
+      const reg = 'serviceWorker' in navigator && await navigator.serviceWorker.getRegistration();
+      if (!reg) { location.reload(); return; }
+      toast('Checking…'); await reg.update();
+      setTimeout(() => { if (!Shell.updateReady && !reg.installing && !reg.waiting) toast('You\'re on the latest version'); }, 2500);
+    } catch (e) { toast('Couldn\'t check (offline?)'); }
+  };
 
   const moved = moveLegacyBW();
   // people arriving with data (legacy apps on this origin, or a restore) skip the first-run tour

@@ -271,6 +271,9 @@ Static files: upload the folder to any HTTPS host (e.g. GitHub Pages), open it i
 
 ## Changelog
 
+### v1.3 — 2026-11-23
+- **Updates actually arrive:** the service worker skips GitHub Pages' 10-minute HTTP cache when filling and refreshing its cache, the app checks for a new version on every resume and every 30 min, and a new version reloads when the app is backgrounded or from a *Reload* banner. More shows the build and a *Check for update* link.
+
 ### v1.2 — 2026-11-23
 - **Light / dark / match-phone theme** (More → General). Light is a soft off-white, not pure white. Set before first paint, so no flash.
 - **Weekly schedule** (Train → Mesocycle → Schedule): *Fixed weekdays* pins each training day to a weekday; *Asynchronous* runs days in order whenever you train. In fixed mode Today shows today's workout or a rest day with what's next, and session cards show their weekday.
