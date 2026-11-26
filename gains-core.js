@@ -286,16 +286,31 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     work: { label: 'Workload', opts: [['easy', 'Easy'], ['good', 'Good'], ['hard', 'Pushed limits'], ['over', 'Too much']] },
   };
   const fbComplete = (f) => !!(f && f.pump && f.sore && f.joint && f.work);
-  /** -> -1 | 0 | 1 | 2 sets. prio 'M' (maintain) never adds. */
+  /** -> -1 | 0 | 1 set. Adds only when the muscle is clearly under-stimulated AND fully recovered;
+   * anything short of that holds. prio 'M' (maintain) never adds. */
   function volumeDelta(f, prio) {
     if (!fbComplete(f)) return 0;
     let d;
     if (f.joint === 'high' || f.work === 'over' || f.sore === 'still') d = -1;          // not recovering / hurting: back off
     else if (f.joint === 'some' || f.sore === 'ontime') d = 0;                          // at the edge of recovery: hold
-    else if (f.pump === 'great' && f.work === 'hard') d = 0;                            // stimulus already high
-    else if (f.pump === 'low' && f.work === 'easy' && f.sore === 'none') d = 2;         // clearly under-dosed
-    else d = 1;                                                                          // recovered early, room to add
+    else if (f.pump === 'great' || f.work === 'hard') d = 0;                            // stimulus already high: hold
+    else if (f.pump === 'low' || f.work === 'easy') d = 1;                              // under-dosed and recovered early
+    else d = 0;                                                                          // moderate pump, good workload: working
     return prio === 'M' ? Math.min(0, d) : d;
+  }
+  /** Weekly ceiling of direct sets a muscle can grow to through feedback. */
+  function weeklyCeiling(muscle, prio) {
+    const v = VOL[muscle] || { p: 12 };
+    return prio === 'M' ? weeklyTarget(muscle, 'M') : v.p + (prio === 'P' ? 4 : 0);
+  }
+  /** Largest set total this muscle's items in one workout may reach after feedback.
+   * o: {muscle, prio, items (this workout), weekSets (muscle, whole week), daySets (all muscles, this workout)} */
+  function addRoom(o) {
+    const cur = o.items.reduce((a, it) => a + (+it.sets || 0), 0);
+    const cap = sessionCap(o.muscle, o.prio);
+    const byWeek = Math.max(0, weeklyCeiling(o.muscle, o.prio) - (o.weekSets || 0));
+    const bySession = Math.max(0, SESSION_MAX - (o.daySets || 0));
+    return Math.min(cap, cur + byWeek, cur + bySession);
   }
   /** Spread a set change across a muscle's plan items in one workout. Adds go to the item with the
    * fewest sets (up to `cap` total), cuts come off the item with the most (never below 1).
@@ -317,40 +332,109 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
   }
 
   // ---------- volume model ----------
-  /* Weekly hard sets per muscle. m = maintenance (~MEV floor), n = normal (MEV->MAV),
-     p = priority (MAV). cap = most sets worth doing for it in one session.
-     freq = most sessions per week that muscle recovers from. */
+  /* Weekly targets are EFFECTIVE (fractional) sets: direct sets + half of the sets from compounds
+     that also train the muscle (Remmert/Pelland 2025 count indirect work at 0.5). The planner turns
+     them into DIRECT targets by subtracting the credit from donor muscles, so biceps on a plan with
+     12 back sets need ~4 curls instead of 10.
+     m = maintenance (~MEV), n = normal (productive middle), p = priority (upper MAV).
+     cap = most direct sets worth doing for it in one session (~11 fractional sets/session is where
+     extra sets stop showing a detectable benefit). freq = most sessions per week it recovers from. */
   const VOL = {
-    'Chest': { m: 6, n: 12, p: 18, cap: 8, freq: 3 },
-    'Back': { m: 8, n: 14, p: 20, cap: 9, freq: 3 },
-    'Traps': { m: 4, n: 8, p: 14, cap: 6, freq: 3 },
-    'Side Delts': { m: 6, n: 12, p: 18, cap: 6, freq: 4 },
-    'Rear Delts': { m: 4, n: 10, p: 16, cap: 6, freq: 4 },
+    'Chest': { m: 6, n: 10, p: 16, cap: 6, freq: 3 },
+    'Back': { m: 6, n: 12, p: 18, cap: 7, freq: 3 },
+    'Traps': { m: 2, n: 6, p: 12, cap: 5, freq: 3 },
+    'Side Delts': { m: 4, n: 10, p: 16, cap: 6, freq: 4 },
+    'Rear Delts': { m: 3, n: 8, p: 14, cap: 5, freq: 4 },
     'Biceps': { m: 4, n: 10, p: 14, cap: 5, freq: 3 },
     'Triceps': { m: 4, n: 10, p: 14, cap: 5, freq: 3 },
-    'Forearms': { m: 2, n: 6, p: 10, cap: 4, freq: 4 },
-    'Quads': { m: 6, n: 12, p: 18, cap: 7, freq: 3 },
-    'Hamstrings': { m: 4, n: 10, p: 14, cap: 6, freq: 3 },
-    'Glutes': { m: 4, n: 8, p: 14, cap: 6, freq: 3 },
-    'Calves': { m: 6, n: 12, p: 16, cap: 5, freq: 4 },
-    'Abs': { m: 4, n: 10, p: 16, cap: 6, freq: 4 },
+    'Forearms': { m: 0, n: 4, p: 8, cap: 4, freq: 4 },
+    'Quads': { m: 6, n: 10, p: 16, cap: 6, freq: 3 },
+    'Hamstrings': { m: 4, n: 8, p: 12, cap: 5, freq: 3 },
+    'Glutes': { m: 3, n: 8, p: 14, cap: 5, freq: 3 },
+    'Calves': { m: 4, n: 8, p: 14, cap: 5, freq: 4 },
+    'Abs': { m: 0, n: 6, p: 12, cap: 5, freq: 4 },
   };
+  /* Indirect credit: receiver <- [donor, fraction of each donor set]. Donors always come before their
+     receivers in DAY_ORDER, so donor sets are known when the receiver's target is set. */
+  const OVERLAP = {
+    'Triceps': [['Chest', 0.5]],
+    'Biceps': [['Back', 0.5]],
+    'Rear Delts': [['Back', 0.5]],
+    'Traps': [['Back', 0.25]],
+    'Forearms': [['Back', 0.25], ['Biceps', 0.25]],
+    'Glutes': [['Quads', 0.5], ['Hamstrings', 0.5]],
+  };
+  const MAX_PRIO = 3;                 // Priority muscles per mesocycle
+  const SESSION_MAX = 30;             // feedback never grows a session past this many working sets
+  // minimum share of the effective target kept as direct work, so a Priority muscle still gets its own lifts
+  const DIRECT_FLOOR = { P: 0.4, N: 0, M: 0 };
   const UPPER = ['Chest', 'Back', 'Traps', 'Side Delts', 'Rear Delts', 'Triceps', 'Biceps', 'Forearms'];
   const LOWER = ['Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   // order inside a session: heavy compound muscles first, then arms/calves/abs
   const DAY_ORDER = ['Chest', 'Back', 'Quads', 'Hamstrings', 'Glutes', 'Traps', 'Side Delts', 'Rear Delts', 'Triceps', 'Biceps', 'Forearms', 'Calves', 'Abs'];
 
+  /** effective (fractional) weekly target */
   function weeklyTarget(muscle, prio) {
     const v = VOL[muscle]; if (!v) return prio === 'P' ? 12 : prio === 'M' ? 4 : 8;
     return prio === 'P' ? v.p : prio === 'M' ? v.m : v.n;
   }
-  function pickSpread(arr, f, off) {
-    f = Math.max(1, Math.min(f, arr.length));
-    const step = arr.length / f, out = [];
-    for (let k = 0; k < f; k++) out.push(arr[Math.round(off + k * step) % arr.length]);
-    return [...new Set(out)];
+  /** sets a muscle gets from other muscles' direct sets: {muscle: sets} -> number */
+  function indirectSets(muscle, direct) {
+    return (OVERLAP[muscle] || []).reduce((a, [d, f]) => a + f * ((direct && direct[d]) || 0), 0);
   }
-  /** -> {names:[], load:[{muscle:sets}]} */
+  /** direct weekly sets needed once donor sets are credited */
+  function directTarget(muscle, prio, direct) {
+    const eff = weeklyTarget(muscle, prio), floor = Math.ceil(eff * (DIRECT_FLOOR[prio] || 0));
+    const d = Math.max(floor, Math.round(eff - indirectSets(muscle, direct)));
+    return d === 1 ? (prio === 'M' ? 0 : 2) : d;      // a lone weekly set isn't worth a slot
+  }
+  /** per-session direct cap; Priority muscles get two more sets */
+  function sessionCap(muscle, prio) {
+    return ((VOL[muscle] || { cap: 6 }).cap) + (prio === 'P' ? 2 : 0);
+  }
+  /** direct targets for every muscle (or just `only`), donors first. prio: {muscle:'P'|'N'|'M'} */
+  function directTargets(prio, only) {
+    const out = {}, keep = only ? new Set(only) : null;
+    for (const mu of DAY_ORDER) { if (keep && !keep.has(mu)) continue; out[mu] = directTarget(mu, (prio && prio[mu]) || 'N', out); }
+    return out;
+  }
+  /** direct + indirect sets per muscle */
+  function effectiveVolume(direct) {
+    const out = {};
+    for (const mu of new Set([...DAY_ORDER, ...Object.keys(direct || {})])) {
+      const v = ((direct && direct[mu]) || 0) + indirectSets(mu, direct);
+      if (v) out[mu] = Math.round(v * 2) / 2;
+    }
+    return out;
+  }
+  /** next priority when the chip is tapped (N -> P -> M -> N); Priority is skipped once MAX_PRIO are taken */
+  function nextPrio(prio, muscle) {
+    const c = (prio && prio[muscle]) || 'N';
+    if (c !== 'N') return c === 'P' ? 'M' : 'N';
+    const used = Object.entries(prio || {}).filter(([k, v]) => v === 'P' && k !== muscle).length;
+    return used >= MAX_PRIO ? 'M' : 'P';
+  }
+  const prioCount = (prio) => Object.values(prio || {}).filter(v => v === 'P').length;
+
+  /** choose f of the candidate days: lightest resulting max load, then most even, then most spread out */
+  function pickDays(idxs, f, dayLoad, add, n) {
+    let best = null, bestKey = null;
+    const combos = (start, acc) => {
+      if (acc.length === f) {
+        const loads = dayLoad.slice(); acc.forEach((di, k) => { loads[di] += add[k]; });
+        const mx = Math.max(...acc.map(di => loads[di])), sum = acc.reduce((a, di) => a + dayLoad[di], 0);
+        // spacing: smallest circular gap between chosen days (bigger is better recovery)
+        let gap = n; if (acc.length > 1) for (let i = 0; i < acc.length; i++) { const g = ((acc[(i + 1) % acc.length] - acc[i]) + n) % n || n; gap = Math.min(gap, g); }
+        const key = [mx, sum, -gap];
+        if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2])))) { best = acc.slice(); bestKey = key; }
+        return;
+      }
+      for (let i = start; i < idxs.length; i++) { acc.push(idxs[i]); combos(i + 1, acc); acc.pop(); }
+    };
+    combos(0, []);
+    return best || idxs.slice(0, f);
+  }
+  /** -> {names:[], load:[{muscle:sets}], targets:{muscle:direct}} */
   function buildSplit(days, prio, type, free) {
     const n = Math.max(1, Math.min(7, days)); let dayMuscles, names;
     if (type === 'freestyle') {
@@ -366,28 +450,38 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
       dayMuscles = Array.from({ length: n }, () => [...UPPER, ...LOWER]);
       names = Array.from({ length: n }, (_, i) => 'Full Body ' + String.fromCharCode(65 + i));
     }
+    const P = (mu) => (prio && prio[mu]) || 'N';
     const load = dayMuscles.map(() => ({}));
-    const order = [...new Set(dayMuscles.flat())].sort((a, b) => DAY_ORDER.indexOf(a) - DAY_ORDER.indexOf(b));
-    order.forEach((mu, oi) => {
+    const present = new Set(dayMuscles.flat());
+    // 1) weekly direct totals, donors first so receivers get credit only for sets actually planned
+    const plan = [], planned = {};
+    for (const mu of DAY_ORDER.concat([...present].filter(m => DAY_ORDER.indexOf(m) < 0))) {
+      if (!present.has(mu)) continue;
       const idxs = dayMuscles.map((a, i) => a.indexOf(mu) >= 0 ? i : -1).filter(i => i >= 0);
-      const wk = weeklyTarget(mu, (prio && prio[mu]) || 'N'); if (!idxs.length || wk <= 0) return;
-      const v = VOL[mu] || { cap: 6, freq: 3 };
+      const wk = directTarget(mu, P(mu), planned); if (!idxs.length || wk <= 0) continue;
+      const v = { freq: 3, ...VOL[mu], cap: sessionCap(mu, P(mu)) };
       let f = Math.max(1, Math.ceil(wk / 6));                  // ~6 sets a session, so a muscle lands on fewer days
       f = Math.min(f, v.freq, idxs.length);                    // respect recovery + days available
       f = Math.min(idxs.length, Math.max(f, Math.ceil(wk / v.cap))); // spread out rather than exceed cap
-      // stagger each muscle's days so sessions fill evenly instead of stacking on the same days
-      const chosen = pickSpread(idxs, f, oi * 1.7);
-      const total = Math.min(wk, v.cap * chosen.length);       // per-session cap wins over weekly target
-      const base = Math.floor(total / chosen.length); let rem = total - base * chosen.length;
-      chosen.forEach((di, k) => { load[di][mu] = base + (k < rem ? 1 : 0); });
-    });
+      const total = Math.min(wk, v.cap * f);                   // per-session cap wins over weekly target
+      planned[mu] = total; plan.push({ mu, idxs, f, total });
+    }
+    // 2) place the biggest blocks first, each on the lightest days, so sessions come out even
+    const dayLoad = load.map(() => 0);
+    plan.sort((a, b) => b.total - a.total || a.f - b.f || DAY_ORDER.indexOf(a.mu) - DAY_ORDER.indexOf(b.mu));
+    for (const { mu, idxs, f, total } of plan) {
+      const base = Math.floor(total / f), rem = total - base * f;
+      const add = Array.from({ length: f }, (_, k) => base + (k < rem ? 1 : 0));
+      const chosen = pickDays(idxs, f, dayLoad, add, n).slice().sort((a, b) => dayLoad[a] - dayLoad[b] || a - b);
+      chosen.forEach((di, k) => { load[di][mu] = add[k]; dayLoad[di] += add[k]; });
+    }
     // never hand back fewer days than asked for
     load.forEach((l, di) => {
       if (Object.keys(l).length) return;
-      dayMuscles[di].slice().sort((a, b) => weeklyTarget(b, (prio && prio[b]) || 'N') - weeklyTarget(a, (prio && prio[a]) || 'N'))
+      dayMuscles[di].slice().sort((a, b) => weeklyTarget(b, P(b)) - weeklyTarget(a, P(a)))
         .slice(0, 3).forEach(mu => { l[mu] = 3; });
     });
-    return { names, load };
+    return { names, load, targets: planned };
   }
   /** split a muscle's session sets into 2-4 set exercises */
   function chunkSets(total, maxEx) {
@@ -527,6 +621,6 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     return rows.join('\n') + '\n';
   }
 
-  const api = { LOADS, inferLoad, effW, fromEff, SET_TYPES, isWork, isHard, SEED_V, SEED_ADDED, WARMUP_SCHEMES, warmups, FB_Q, fbComplete, volumeDelta, distributeSets, clamp, TYPES, inferType, MUSCLES, VOL, UPPER, LOWER, DAY_ORDER, weeklyTarget, buildSplit, chunkSets, generatePlan, planVolume, missingMuscles, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, recommend, REC_WEIGHTS, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toCSV, CSV_COLS, fmtDate, fmtDur, WEEK };
+  const api = { LOADS, inferLoad, effW, fromEff, SET_TYPES, isWork, isHard, SEED_V, SEED_ADDED, WARMUP_SCHEMES, warmups, FB_Q, fbComplete, volumeDelta, distributeSets, weeklyCeiling, addRoom, sessionCap, SESSION_MAX, MAX_PRIO, OVERLAP, indirectSets, directTarget, directTargets, effectiveVolume, nextPrio, prioCount, clamp, TYPES, inferType, MUSCLES, VOL, UPPER, LOWER, DAY_ORDER, weeklyTarget, buildSplit, chunkSets, generatePlan, planVolume, missingMuscles, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, recommend, REC_WEIGHTS, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toCSV, CSV_COLS, fmtDate, fmtDur, WEEK };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

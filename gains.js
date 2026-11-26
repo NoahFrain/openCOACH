@@ -289,13 +289,23 @@
     const a = S.active, m = S.mesos.find(x => x.id === a.mesoId), day = m && m.days.find(d => d.id === a.dayId);
     return { m, day, items: day ? day.items.filter(it => EX[it.exId] && EX[it.exId].muscle === mu) : [] };
   }
+  /** Most sets this muscle may reach in today's workout plan: per-session cap, weekly ceiling, session size. */
+  function fbRoom(m, mu, items) {
+    const day = m.days.find(d => d.id === S.active.dayId);
+    const weekSets = m.days.reduce((a, d) => a + d.items.reduce((b, it) => b + (EX[it.exId] && EX[it.exId].muscle === mu ? +it.sets || 0 : 0), 0), 0);
+    const daySets = day ? day.items.reduce((a, it) => a + (+it.sets || 0), 0) : 0;
+    return C.addRoom({ muscle: mu, prio: prioOf(m, mu), items, weekSets, daySets });
+  }
   /** Preview of what the answers do next week: {delta, changes:[{name, from, to}], capped} */
   function fbPreview(mu) {
     const a = S.active, f = (a.fb || {})[mu], { m, items } = fbTargets(mu);
     if (!m || !C.fbComplete(f)) return null;
-    const delta = C.volumeDelta(f, prioOf(m, mu)), copy = items.map(it => ({ sets: it.sets }));
-    const ch = C.distributeSets(copy, delta, (C.VOL[mu] || {}).cap);
-    return { delta, changes: ch.map(c => ({ name: EX[items[c.i].exId].name, from: c.from, to: c.to })), capped: delta > 0 && !ch.length };
+    const raw = C.volumeDelta(f, prioOf(m, mu));
+    // at most one added set per muscle per week, however many sessions train it
+    const weekly = raw > 0 && S.sessions.some(s => s.mesoId === m.id && s.week === a.week && s.fb && s.fb[mu] && s.fb[mu].delta > 0);
+    const delta = weekly ? 0 : raw, copy = items.map(it => ({ sets: it.sets }));
+    const ch = C.distributeSets(copy, delta, fbRoom(m, mu, items));
+    return { delta, weekly, changes: ch.map(c => ({ name: EX[items[c.i].exId].name, from: c.from, to: c.to })), capped: delta > 0 && !ch.length };
   }
   function feedbackHTML(mu) {
     const a = S.active, m = S.mesos.find(x => x.id === a.mesoId);
@@ -316,7 +326,7 @@
     });
     const pv = fbPreview(mu);
     if (pv) {
-      const txt = pv.capped ? `Already at the per-session cap for ${esc(mu)} — holding sets.`
+      const txt = pv.weekly ? `${esc(mu)} already gained a set this week — holding.` : pv.capped ? `${esc(mu)} is at its session, weekly or workout-size limit — holding sets.`
         : pv.delta === 0 || !pv.changes.length ? (pv.delta < 0 ? 'Every movement is already at 1 set — holding.' : `Holding ${esc(mu)} sets next week.`)
         : pv.changes.map(c => `${esc(c.name)} ${c.from} → ${c.to}`).join(' · ');
       const cls = pv.delta > 0 && pv.changes.length ? 'up' : pv.delta < 0 && pv.changes.length ? 'dn' : 'hd';
@@ -363,7 +373,9 @@
 
   function viewDraft() {
     const d = ui.draft, muscles = [...new Set(d.days.flatMap(x => x.items.map(i => EX[i.exId] && EX[i.exId].muscle)))].filter(Boolean);
-    const vol = C.planVolume(d.days, EX);
+    const vol = C.effectiveVolume(C.planVolume(d.days, EX));
+    muscles.push(...Object.keys(vol).filter(mu => muscles.indexOf(mu) < 0 && vol[mu] > 0));
+    const perDay = d.days.map(x => x.items.reduce((a, it) => a + (+it.sets || 0), 0));
     let h = brandBar()
       + (d.fromWiz && !d.editing ? `<div class="row" style="margin:2px 0 4px"><button class="sm ghost" style="padding-left:4px" onclick="G.wizStep('${d.fromWiz === 'freestyle' ? 'free' : 'split'}')">‹ Back</button><span class="sp"></span><span class="mut xs">Step 4 of 4</span></div>` : '')
       + `<h1>${d.editing ? 'Edit mesocycle' : d.fromWiz ? 'Exercises' : 'New mesocycle'}</h1>`;
@@ -377,7 +389,7 @@
       return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="sp sm">${esc(mu)}</span>
         <span class="sm num" style="width:64px;text-align:right;color:${Math.abs(off) <= 2 ? 'var(--mut)' : off < 0 ? 'var(--warn)' : 'var(--acc-hi)'}">${v} / ${t}</span>
         <button class="chip ${p}" style="min-height:30px;width:88px" onclick="G.cyc('${esc(mu)}')">${{ P: 'Priority', N: 'Normal', M: 'Maintain' }[p]}</button></div>`;
-    }).join('')}<div class="xs mut" style="margin-top:10px">Planned sets vs. weekly target. Amber means the day layout caps that muscle — spread it across another day to hit target. Set counts stay flat; progression comes from reps and load.</div></div>` : '<div class="card mut sm">Add exercises below to calculate weekly volume.</div>';
+    }).join('')}<div class="xs mut" style="margin-top:10px">Effective weekly sets (direct + half of overlapping compound sets) vs. target. Amber means the day layout caps that muscle — spread it across another day to hit target. Sets per session: <b class="num">${perDay.join(' / ')}</b>${Math.max(...perDay) > C.SESSION_MAX ? ' <span style="color:var(--warn)">— over ' + C.SESSION_MAX + ', consider another day</span>' : ''}.</div></div>` : '<div class="card mut sm">Add exercises below to calculate weekly volume.</div>';
     h += '<h2>Days</h2>';
     d.days.forEach((day, di) => {
       h += `<div class="card"><div class="row"><input value="${esc(day.name)}" oninput="gui_day(${di},this.value)"><button class="ico" title="Duplicate day" onclick="G.dupDay(${di})">⧉</button><button class="ico ghost bad" title="Delete day" onclick="G.delDay(${di})">✕</button></div>`;
@@ -410,14 +422,15 @@
       <button class="pri" style="width:100%" onclick="G.wizStep('prio')">Next: priorities ›</button>`;
 
     if (w.step === 'prio') {
+      const dt = C.directTargets(w.prio), np = C.prioCount(w.prio);
       const rows = C.DAY_ORDER.map(mu => {
-        const p = w.prio[mu] || 'N';
+        const p = w.prio[mu] || 'N', ind = C.indirectSets(mu, dt);
         return `<div class="row" style="padding:7px 0;border-bottom:1px solid var(--line)"><span class="sp sm">${esc(mu)}</span>
-          <span class="mut xs num" style="width:58px;text-align:right">${C.weeklyTarget(mu, p)} sets</span>
+          <span class="mut xs num" style="width:92px;text-align:right">${dt[mu]} sets${ind ? `<span class="dim"> +${Math.round(ind * 2) / 2}</span>` : ''}</span>
           <button class="chip ${p}" style="min-height:32px;width:94px" onclick="G.wizPrio('${esc(mu)}')">${{ P: 'Priority', N: 'Normal', M: 'Maintain' }[p]}</button></div>`;
       }).join('');
       return wizHead('Muscle priority', 'Step 2 of 4', 'days')
-        + `<div class="card">${rows}<div class="xs mut" style="margin-top:12px">Weekly sets per muscle. Maintain holds near minimum effective volume, Normal sits in the productive middle, Priority pushes to the top of MAV.</div></div>
+        + `<div class="card">${rows}<div class="xs mut" style="margin-top:12px">Direct weekly sets per muscle; <span class="dim">+n</span> is credit from compounds (presses for triceps, rows for biceps and rear delts, squats and hinges for glutes) counted at half a set. Maintain holds near minimum effective volume, Normal sits in the productive middle, Priority pushes toward the top of MAV. Priority: <b class="num">${np}/${C.MAX_PRIO}</b>.</div></div>
         <button class="pri" style="width:100%" onclick="G.wizStep('split')">Next: split type ›</button>`;
     }
 
@@ -724,7 +737,7 @@
       const fbMsg = [];
       if (a.fb) Object.keys(a.fb).forEach(mu => {
         const pv = fbPreview(mu); if (!pv || !pv.changes.length) return;
-        const { items } = fbTargets(mu), ch = C.distributeSets(items, pv.delta, (C.VOL[mu] || {}).cap);
+        const { m: fm, items } = fbTargets(mu), ch = C.distributeSets(items, pv.delta, fbRoom(fm, mu, items));
         const net = ch.reduce((x, c) => x + c.to - c.from, 0); if (net) fbMsg.push(mu + ' ' + (net > 0 ? '+' : '') + net);
         a.fb[mu].delta = net;
       });
@@ -752,7 +765,7 @@
       else ui.wiz.step = s;
       ui.draft = null; render(); window.scrollTo(0, 0);
     },
-    wizPrio(mu) { const w = ui.wiz; w.prio[mu] = { N: 'P', P: 'M', M: 'N' }[w.prio[mu] || 'N']; render(); },
+    wizPrio(mu) { G.setPrio(ui.wiz.prio, mu); },
     wizSplit(t) {
       const w = ui.wiz; w.type = t;
       if (t === 'freestyle') { w.free = Array.from({ length: w.days }, (_, i) => (w.free[i] && w.free[i].length) ? w.free[i] : ['', '', '']); w.step = 'free'; render(); window.scrollTo(0, 0); }
@@ -792,7 +805,12 @@
     },
     editMeso() { ui.draft = Object.assign(clone(activeMeso()), { editing: true }); render(); window.scrollTo(0, 0); },
     cancelDraft() { ui.draft = null; ui.wiz = null; render(); },
-    cyc(mu) { const d = ui.draft, c = d.prio[mu] || 'N'; d.prio[mu] = { N: 'P', P: 'M', M: 'N' }[c]; render(); },
+    cyc(mu) { G.setPrio(ui.draft.prio, mu); },
+    setPrio(prio, mu) {
+      const was = prio[mu] || 'N', nx = C.nextPrio(prio, mu); prio[mu] = nx;
+      if (was === 'N' && nx === 'M') toast('Priority is limited to ' + C.MAX_PRIO + ' muscles');
+      render();
+    },
     tmpl(name) {
       if (!name) return; const d = ui.draft, T = C.TEMPLATES[name]; const byName = Object.fromEntries(S.exercises.map(e => [e.name, e]));
       d.days = T.map(([dn, items]) => ({ id: C.uid(), name: dn, items: items.filter(([n]) => byName[n]).map(([n, s]) => ({ exId: byName[n].id, sets: s, min: byName[n].min, max: byName[n].max })) }));
