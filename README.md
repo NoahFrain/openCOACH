@@ -109,15 +109,27 @@ Within a day, priority muscles come first, and a muscle's exercises sit together
 
 ### Volume model
 
-Weekly sets per muscle sit between minimum effective volume and maximum adaptive volume:
+Targets are **effective weekly sets**: direct sets plus half of each set from a compound that also trains the muscle (fractional counting, as in Pelland/Remmert et al. 2025). The planner converts them to **direct** targets by subtracting that credit, so arms, rear delts, traps and glutes aren't double-dosed on top of presses, rows, squats and hinges.
 
-| Priority | Weekly sets |
+| Receiver | Credit from |
+|---|---|
+| Triceps | Chest × 0.5 |
+| Biceps, Rear Delts | Back × 0.5 |
+| Traps | Back × 0.25 |
+| Forearms | Back × 0.25, Biceps × 0.25 |
+| Glutes | Quads × 0.5, Hamstrings × 0.5 |
+
+| Priority | Effective weekly sets |
 |---|---|
 | Maintain | near the minimum effective floor |
-| Normal | between minimum effective and maximum adaptive |
-| Priority | top of maximum adaptive |
+| Normal | the productive middle (all-Normal ≈ 78 direct sets/week) |
+| Priority | upper MAV; keeps at least 40% as direct work and +2 on the per-session cap |
 
-These ranges are population averages; tune them against your own logs. Each muscle also has a per-session cap and a weekly frequency cap, so volume is spread rather than dumped.
+- **Priority is limited to 3 muscles.** Tapping a fourth skips to Maintain.
+- A computed direct target of 1 becomes 2 (0 on Maintain); a lone weekly set isn't worth a slot.
+- Each muscle has a per-session cap (5–7 direct sets; ~11 fractional sets/session is where extra sets stop showing a detectable benefit) and a weekly frequency cap.
+- **Balancing:** weekly totals are set first (donors before receivers), then the biggest blocks are placed on the lightest eligible days, preferring the widest spacing. A 3-day all-Normal full body comes out 27 / 26 / 25 sets.
+- The draft's weekly-sets panel shows effective sets vs. target and the sets per session, warning above 30.
 
 Sets per muscle per day are split into movements:
 
@@ -142,15 +154,16 @@ When every working set for a muscle in a workout is checked off, its card asks f
 |---|---|
 | Joint pain *a lot*, workload *too much*, or *still sore* | −1 set |
 | Joint pain *some*, or *healed on time* | Hold |
-| Great pump and *pushed limits* | Hold |
-| Low pump, *easy*, *never sore* | +2 sets |
-| Otherwise (recovered early) | +1 set |
+| Great pump, or *pushed limits* | Hold |
+| Low pump or *easy*, and never sore / healed early, no joint pain | +1 set |
+| Otherwise (moderate pump, good workload) | Hold: it's working |
 
-- Maintain-priority muscles never go up.
-- Adds go to that muscle's movement with the fewest sets and stop at the per-session cap. Cuts come off the movement with the most sets, never below 1.
+- Maintain-priority muscles never go up. Never more than +1.
+- **At most one added set per muscle per week**, however many sessions train it.
+- Adds go to that muscle's movement with the fewest sets and stop at the first of: the per-session cap, the weekly ceiling (Priority target; +4 for Priority muscles), or 30 working sets in that workout. Cuts come off the movement with the most sets, never below 1.
 - The card previews the exact change ("Lat Pulldown 3 → 4"). It is applied when you tap **Finish workout**, so a discarded workout changes nothing.
 - Hidden in deload weeks; can be skipped per muscle.
-- `volumeDelta` and `distributeSets` in `gains-core.js` hold the rules.
+- `volumeDelta`, `addRoom` and `distributeSets` in `gains-core.js` hold the rules.
 
 ### Progression: double progression
 

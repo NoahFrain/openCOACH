@@ -79,9 +79,12 @@ assert.deepStrictEqual(C.warmups(5, { inc: 5 }), []);
 
 // feedback -> delta
 const F = (pump, sore, joint, work) => ({ pump, sore, joint, work });
-assert.strictEqual(C.volumeDelta(F('mod', 'early', 'none', 'good')), 1);
-assert.strictEqual(C.volumeDelta(F('low', 'none', 'none', 'easy')), 2);
-assert.strictEqual(C.volumeDelta(F('great', 'early', 'none', 'hard')), 0);
+assert.strictEqual(C.volumeDelta(F('mod', 'early', 'none', 'good')), 0, 'moderate pump + good workload holds');
+assert.strictEqual(C.volumeDelta(F('low', 'none', 'none', 'easy')), 1, 'never more than +1');
+assert.strictEqual(C.volumeDelta(F('low', 'early', 'none', 'good')), 1);
+assert.strictEqual(C.volumeDelta(F('mod', 'none', 'none', 'easy')), 1);
+assert.strictEqual(C.volumeDelta(F('great', 'early', 'none', 'easy')), 0, 'great pump holds');
+assert.strictEqual(C.volumeDelta(F('low', 'early', 'none', 'hard')), 0, 'pushed limits holds');
 assert.strictEqual(C.volumeDelta(F('low', 'ontime', 'none', 'easy')), 0);
 assert.strictEqual(C.volumeDelta(F('low', 'none', 'some', 'easy')), 0);
 assert.strictEqual(C.volumeDelta(F('great', 'none', 'high', 'easy')), -1);
@@ -99,4 +102,59 @@ its = [{ sets: 1 }]; assert.deepStrictEqual(C.distributeSets(its, -1), []);
 assert.deepStrictEqual(C.CSV_COLS.slice(-4), ['Set Type', 'Load Type', 'Bodyweight', 'Effective Load']);
 const csv = C.toCSV([{ start: 0, name: 'Pull', items: [{ exId: 'p', min: 6, max: 10, sets: [{ w: 25, r: 8, done: true, t: '' }] }] }], { p: { name: 'Pull Up', muscle: 'Back', load: 'bw' } }, {}, 'lb', () => 180);
 assert.ok(csv.split('\n')[1].endsWith('Working,Bodyweight + added,180,205'), csv);
-console.log('core v8: all tests passed');
+
+// ---------- volume model v9 ----------
+// overlap: donor sets credit receivers at their fraction
+assert.strictEqual(C.indirectSets('Biceps', { Back: 12 }), 6);
+assert.strictEqual(C.indirectSets('Glutes', { Quads: 10, Hamstrings: 8 }), 9);
+assert.strictEqual(C.indirectSets('Chest', { Back: 12 }), 0);
+const dt = C.directTargets({});
+assert.strictEqual(dt.Biceps, 4, 'biceps 10 effective - 6 from 12 back sets');
+assert.strictEqual(dt.Triceps, 5, 'triceps 10 effective - 5 from 10 chest sets');
+assert.strictEqual(dt.Glutes, 0, 'squats + hinges cover Normal glutes');
+assert.ok(Object.values(dt).every(v => v !== 1), 'no lone weekly sets');
+// Priority keeps direct work even when compounds would cover it
+assert.ok(C.directTargets({ Glutes: 'P' }).Glutes >= Math.ceil(C.weeklyTarget('Glutes', 'P') * 0.4));
+// a smaller donor means more direct work for the receiver
+assert.ok(C.directTargets({ Back: 'M' }).Biceps > dt.Biceps);
+// effective volume adds half of donor sets
+assert.strictEqual(C.effectiveVolume({ Back: 12, Biceps: 4 }).Biceps, 10);
+// all-Normal weekly direct total stays in a sane band
+const tot = Object.values(dt).reduce((a, b) => a + b, 0);
+assert.ok(tot >= 65 && tot <= 90, 'weekly direct total ' + tot);
+
+// priority limit
+assert.strictEqual(C.nextPrio({}, 'Chest'), 'P');
+assert.strictEqual(C.nextPrio({ Chest: 'P', Back: 'P', Quads: 'P' }, 'Biceps'), 'M', '4th priority skips to maintain');
+assert.strictEqual(C.nextPrio({ Chest: 'P', Back: 'P', Quads: 'P' }, 'Chest'), 'M');
+assert.strictEqual(C.nextPrio({ Chest: 'M' }, 'Chest'), 'N');
+assert.strictEqual(C.prioCount({ Chest: 'P', Back: 'N', Quads: 'P' }), 2);
+
+// generated plans: sessions balanced and sized sensibly for 2-6 days
+const lib = Object.keys(C.VOL).flatMap(m => [1, 2, 3, 4].map(i => ({ id: m + i, muscle: m, min: 8, max: 12 })));
+const byId = Object.fromEntries(lib.map(e => [e.id, e]));
+const PRIOS = [{}, { Chest: 'P', Back: 'P', 'Side Delts': 'P' }, { Quads: 'P', Hamstrings: 'P', Glutes: 'P' }];
+for (const prio of PRIOS) for (const type of ['full', 'upper-lower']) for (let n = 2; n <= 6; n++) {
+  const plan = C.generatePlan({ days: n, prio, type, exercises: lib });
+  const per = plan.map(d => d.items.reduce((a, it) => a + it.sets, 0));
+  const tag = type + ' ' + n + 'd ' + JSON.stringify(prio) + ' ' + per.join('/');
+  assert.strictEqual(plan.length, n, tag);
+  if (n >= 3) assert.ok(Math.max(...per) <= 32, 'session too big: ' + tag);
+  if (type === 'full') assert.ok(Math.max(...per) - Math.min(...per) <= 4, 'unbalanced: ' + tag);
+  // no muscle over its per-session cap in any day
+  for (const d of plan) {
+    const pm = {}; d.items.forEach(it => { const mu = byId[it.exId].muscle; pm[mu] = (pm[mu] || 0) + it.sets; });
+    for (const mu in pm) assert.ok(pm[mu] <= C.sessionCap(mu, prio[mu] || 'N'), mu + ' over cap: ' + tag);
+  }
+}
+// all-Normal 3-day full body: the old generator built 46/40/48
+const p3 = C.generatePlan({ days: 3, prio: {}, type: 'full', exercises: lib }).map(d => d.items.reduce((a, it) => a + it.sets, 0));
+assert.ok(Math.max(...p3) <= 28, '3-day full body ' + p3.join('/'));
+
+// feedback room: per-session cap, weekly ceiling, session size
+assert.strictEqual(C.addRoom({ muscle: 'Chest', prio: 'N', items: [{ sets: 3 }], weekSets: 10, daySets: 20 }), 6);
+assert.strictEqual(C.addRoom({ muscle: 'Chest', prio: 'N', items: [{ sets: 3 }], weekSets: 16, daySets: 20 }), 3, 'weekly ceiling reached');
+assert.strictEqual(C.addRoom({ muscle: 'Chest', prio: 'N', items: [{ sets: 3 }], weekSets: 10, daySets: 30 }), 3, 'session full');
+assert.strictEqual(C.addRoom({ muscle: 'Chest', prio: 'P', items: [{ sets: 3 }], weekSets: 10, daySets: 20 }), 8, 'priority cap +2');
+its = [{ sets: 3 }]; assert.deepStrictEqual(C.distributeSets(its, 1, C.addRoom({ muscle: 'Chest', prio: 'N', items: its, weekSets: 10, daySets: 30 })), []);
+console.log('core v9: all tests passed');
