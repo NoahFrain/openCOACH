@@ -256,17 +256,8 @@
       else h += '<div class="mv-sep"></div>';
       lastI = i;
       const L = loadOf(ex), asst = L === 'assist';
-      const ar = (from, to) => asst ? `Assist ${fw(from)} → ${fw(to)}` : `${fw(from)} → ${fw(to)}`;
-      const badge = { new: '<span class="badge hd">New — enter weight</span>', rec: `<span class="badge rc num">2 RIR rec · ${asst ? 'assist ' : L === 'bw' ? '+' : ''}${fw(it.to)} × ${it.rec ? it.rec.reps : it.min}</span>`, up: `<span class="badge up num">↑ ${ar(it.from, it.to)} · range exceeded</span>`, hold: '<span class="badge hd">Beat last week</span>', down: `<span class="badge dn num">↓ ${ar(it.from, it.to)}</span>`, deload: '<span class="badge dl">Deload</span>' }[it.mode] || '';
-      const recLine = it.rec && it.mode !== 'rec' ? `<span class="xs mut num">2 RIR rec: ${asst ? 'assist ' : L === 'bw' ? '+' : ''}${fw(it.rec.w)} × ${it.rec.reps}</span>` : '';
-      const recSrc = it.rec ? `<span class="xs dim num">from last ${it.rec.n} session${it.rec.n === 1 ? '' : 's'}</span>` : '';
-      const chips = `<span class="chip">${esc(ex.type || 'Other')}</span><span class="chip num">${it.min}–${it.max} reps</span>`
-        + (L !== 'ext' && bw > 0 ? `<span class="chip num">BW ${fw(bw)}</span>` : '')
-        + (Number.isFinite(ex.rest) ? `<span class="chip num">Rest ${mmss(ex.rest)}</span>` : '');
-      h += `<div class="mv"><div class="row" style="align-items:flex-start"><div class="sp"><b style="font-size:15px">${esc(ex.name)}</b><div class="chips" style="margin-top:5px">${chips}</div></div><button class="ico ghost" title="Swap exercise" onclick="G.swap(${i})">${ICONS.swap}</button><button class="ico ghost" title="More" aria-label="More options" onclick="G.more(${i})">${ICONS.more}</button></div>
-        <div class="row sm mut" style="margin:8px 0 2px;flex-wrap:wrap;gap:6px">${badge}${recLine}${recSrc}</div>
-        ${L !== 'ext' && !(bw > 0) ? `<div class="card notice xs" style="margin:8px 0;padding:9px 11px"><div class="row" style="gap:6px"><span class="sp">Log bodyweight to track 1RM and get recommendations on ${asst ? 'assisted' : 'bodyweight'} lifts.</span><input id="bw_s_${i}" type="number" inputmode="decimal" step="any" placeholder="${Shell.uW()}" style="width:74px;min-height:34px;padding:4px 8px"><button class="sm" onclick="G.logBW('bw_s_${i}')">Save</button></div></div>` : ''}
-        ${it.prev ? `<div class="xs dim num" style="margin:4px 0 8px">Last${it.prevFrom ? ' (' + esc(it.prevFrom) + ')' : ''}: ${esc(it.prev)}</div>` : '<div style="height:6px"></div>'}
+      h += `<div class="mv"><div class="row" style="align-items:flex-start"><button class="ex-hd sp" title="History and details" onclick="G.exInfo(${i})"><b style="font-size:15px">${esc(ex.name)}</b><span class="ex-chev" aria-hidden="true">›</span><span class="xs mut num" style="display:block;margin-top:3px">${it.min}–${it.max} reps</span></button><button class="ico ghost" title="Swap exercise" onclick="G.swap(${i})">${ICONS.swap}</button><button class="ico ghost" title="More" aria-label="More options" onclick="G.more(${i})">${ICONS.more}</button></div>
+        <div style="height:8px"></div>
         <div class="lbl"><span>Set</span><span>${asst ? 'Assist' : L === 'bw' ? '+' + Shell.uW() : Shell.uW()}</span><span>Reps</span><span>RIR</span><span>Done</span></div>`;
       let wn = 0;
       it.sets.forEach((st, j) => {
@@ -561,6 +552,7 @@
         <div class="menu">${Object.entries(C.SET_TYPES).map(([k, l]) => `<button class="mi ${(st.t || '') === k ? 'on' : ''}" onclick="G.stSet(${q.i},${q.j},'${k}')"><span class="mi-ic st-ic t-${k || 'N'}">${k || '#'}</span><span class="sp" style="text-align:left">${l}<span class="xs mut" style="display:block;font-weight:400;margin-top:1px">${sub[k]}</span></span></button>`).join('')}</div>
         <button class="ghost" style="width:100%;margin-top:8px" onclick="G.closeModal()">Cancel</button></div></div>`;
     }
+    if (q.type === 'exinfo') return exInfoHTML(q.i);
     if (q.type === 'rest') {
       const it = S.active && S.active.items[q.i], ex = it && EX[it.exId]; if (!ex) return '';
       const cur = Number.isFinite(ex.rest) ? ex.rest : null;
@@ -610,6 +602,37 @@
         <div class="g2" style="margin-top:14px">${q.id ? '<button class="bad" onclick="G.exDel()">Delete</button>' : '<button onclick="G.closeModal()">Cancel</button>'}<button class="pri" onclick="G.exSave()">Save</button></div></div></div>`;
     }
     return '';
+  }
+  /** Exercise detail sheet opened by tapping the name on a workout card: today's guidance + history. */
+  function exInfoHTML(i) {
+    const it = S.active && S.active.items[i], ex = it && EX[it.exId]; if (!ex) return '';
+    const L = loadOf(ex), asst = L === 'assist', bw = curBW(), pre = asst ? 'assist ' : L === 'bw' ? '+' : '';
+    const ar = (from, to) => asst ? `Assist ${fw(from)} → ${fw(to)}` : `${fw(from)} → ${fw(to)}`;
+    const badge = { new: '<span class="badge hd">New — enter weight</span>', rec: `<span class="badge rc num">2 RIR rec · ${pre}${fw(it.to)} × ${it.rec ? it.rec.reps : it.min}</span>`, up: `<span class="badge up num">↑ ${ar(it.from, it.to)} · range exceeded</span>`, hold: '<span class="badge hd">Beat last week</span>', down: `<span class="badge dn num">↓ ${ar(it.from, it.to)}</span>`, deload: '<span class="badge dl">Deload</span>' }[it.mode] || '';
+    const recLine = it.rec && it.mode !== 'rec' ? `<span class="xs mut num">2 RIR rec: ${pre}${fw(it.rec.w)} × ${it.rec.reps}</span>` : '';
+    const recSrc = it.rec ? `<span class="xs dim num">from last ${it.rec.n} session${it.rec.n === 1 ? '' : 's'}</span>` : '';
+    const kv = (k, v) => `<div class="ex-kv"><span class="xs mut">${k}</span><b class="num">${v}</b></div>`;
+    // history: newest first, best e1RM on load actually moved
+    const hist = instances(it.exId, 30).map(x => {
+      const work = x.sets.filter(st => st.t !== 'W');
+      const e1 = Math.round(Math.max(0, ...work.filter(st => st.t !== 'D' && st.t !== 'M').map(st => C.e1rm(C.effW(st.w, L, bwAt(x.s.start)), st.r))) || 0);
+      return { s: x.s, str: setStr(x.sets), e1, n: work.length };
+    });
+    const best = Math.max(0, ...hist.map(x => x.e1));
+    const rows = hist.map(x => `<div class="ex-hist"><div class="row"><span class="sp sm"><b>${dstr(x.s.start)}</b> <span class="mut">· ${esc(x.s.name)}${x.s.week ? ' · W' + x.s.week : ''}</span></span>${x.e1 ? `<span class="xs num ${x.e1 === best ? 'ok-tx' : 'mut'}">e1RM ${fw(x.e1)}${x.e1 === best ? ' ★' : ''}</span>` : ''}</div><div class="xs mut num" style="margin-top:3px">${esc(x.str)}</div></div>`).join('');
+    return `<div class="modal" onclick="if(event.target===this)G.closeModal()"><div class="sheet ex-sheet">
+      <div class="row" style="align-items:flex-start"><div class="sp"><h1 style="font-size:20px;margin-bottom:2px">${esc(ex.name)}</h1><div class="sm mut">${esc(ex.muscle)} · ${esc(ex.type || 'Other')} · ${esc(C.LOADS[L] || L)}</div></div><button class="ico ghost" aria-label="Close" onclick="G.closeModal()">✕</button></div>
+      <h2 style="margin-top:14px">Today</h2>
+      <div class="card" style="margin-bottom:0">
+        ${badge || recLine ? `<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${badge}${recLine}${recSrc}</div>` : ''}
+        <div class="ex-kvs">${kv('Rep range', it.min + '–' + it.max)}${kv('Sets', it.sets.filter(st => st.t !== 'W').length)}${kv('Rest', `<button class="link" onclick="G.restAsk(${i})">${mmss(restOf(ex))}</button>`)}${L !== 'ext' ? kv('Bodyweight', bw > 0 ? fw(bw) + ' ' + Shell.uW() : '—') : ''}</div>
+        ${it.prev ? `<div class="xs mut num" style="margin-top:10px">Last${it.prevFrom ? ' (' + esc(it.prevFrom) + ')' : ''}: ${esc(it.prev)}</div>` : ''}
+        ${L !== 'ext' && !(bw > 0) ? `<div class="card notice xs" style="margin:10px 0 0;padding:9px 11px"><div class="row" style="gap:6px"><span class="sp">Log bodyweight to track 1RM and get recommendations on ${asst ? 'assisted' : 'bodyweight'} lifts.</span><input id="bw_s_${i}" type="number" inputmode="decimal" step="any" placeholder="${Shell.uW()}" style="width:74px;min-height:34px;padding:4px 8px"><button class="sm" onclick="G.logBW('bw_s_${i}')">Save</button></div></div>` : ''}
+      </div>
+      <h2 style="margin-top:16px">History</h2>
+      ${hist.length ? `<div class="ex-kvs" style="margin-bottom:8px">${kv('Sessions', hist.length + (hist.length >= 30 ? '+' : ''))}${kv('Best e1RM', best ? fw(best) : '—')}${kv('Last e1RM', hist[0].e1 ? fw(hist[0].e1) : '—')}</div>
+        <div class="card" style="padding:4px 14px">${rows}</div>` : '<div class="sm mut" style="padding:6px 2px">No logged sets yet. Your first session sets the baseline.</div>'}
+    </div></div>`;
   }
   function pickChips(k) {
     const q = ui.modal;
@@ -695,6 +718,7 @@
     },
     // --- per-exercise rest
     restAsk(i) { ui.modal = { type: 'rest', i }; render(); },
+    exInfo(i) { ui.modal = { type: 'exinfo', i }; render(); },
     restSet(i, sec) {
       const ex = EX[S.active.items[i].exId];
       if (sec == null) delete ex.rest; else if (sec > 0) ex.rest = Math.round(sec); else { toast('Enter seconds'); return; }

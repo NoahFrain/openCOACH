@@ -531,6 +531,18 @@ input.fz::placeholder{color:var(--mut);opacity:.75}
 .pw-plan.on .pw-radio{border-color:var(--acc);background:radial-gradient(circle,var(--acc) 0 45%,transparent 50%)}
 body.paywall .tabs,body.paywall #timer{display:none}
 body.paywall #app{padding-bottom:calc(24px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom)))}
+/* workout card: tappable exercise title -> detail sheet */
+button.ex-hd{display:block;text-align:left;background:none;border:0;padding:2px 0;min-height:0;border-radius:6px;color:var(--tx);font:inherit;box-shadow:none;cursor:pointer}
+button.ex-hd:active{opacity:.7;transform:none}
+.ex-chev{color:var(--dim);margin-left:6px;font-size:17px;line-height:1}
+.ex-sheet{max-height:86vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.ex-kvs{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:10px}
+.ex-kv{display:flex;flex-direction:column;gap:2px}
+.ex-kv b{font-size:15px}
+.ex-hist{padding:10px 0;border-bottom:1px solid var(--line)}
+.ex-hist:last-child{border-bottom:0}
+.ok-tx{color:var(--ok)}
+button.link{background:none;border:0;padding:0;min-height:0;color:var(--acc);font:inherit;font-weight:600;box-shadow:none;text-decoration:underline;text-underline-offset:3px}
 </style>
 </head>
 <body>

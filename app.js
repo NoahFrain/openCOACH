@@ -4,7 +4,7 @@
 (function () {
   'use strict';
   const Shell = window.Shell, GAINS = window.GAINS, MACROS = window.MACROS, MC = window.MCore;
-  const BUILD = 'v1.5 · 2026-11-26';
+  const BUILD = 'v1.6 · 2026-11-27';
   const TUTORIAL_V = 1; // bump to re-show the tutorial to everyone after a major feature
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

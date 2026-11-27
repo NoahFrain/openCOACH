@@ -1,6 +1,6 @@
 // Bump V on every release (and BUILD in app.js). The page checks for a new sw.js on launch, on resume
 // and every 30 min; a changed V installs a fresh cache and the page offers a reload.
-const V='opencoach-v1-5',FILES=['./','index.html','config.js','native.js','pro.js','app.js','shell.js','gains.js','gains-core.js','macros.js','macros-core.js','manifest.webmanifest','icon-180.png','icon-192.png','icon-512.png','vendor/html5-qrcode.min.js'];
+const V='opencoach-v1-6',FILES=['./','index.html','config.js','native.js','pro.js','app.js','shell.js','gains.js','gains-core.js','macros.js','macros-core.js','manifest.webmanifest','icon-180.png','icon-192.png','icon-512.png','vendor/html5-qrcode.min.js'];
 // cache:'reload' skips the HTTP cache. GitHub Pages sends max-age=600, so without it a fresh service
 // worker can fill its new cache with the previous release's files.
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(FILES.map(f=>new Request(f,{cache:'reload'})))).then(()=>self.skipWaiting()))});
