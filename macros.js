@@ -598,6 +598,7 @@
 
   // ---------- Guided Goal Wizard ----------
   const rateLabel = (w) => `${w.ratePctWk}% BW/wk (${r1(C.fromLb(w.startWeightLb * w.ratePctWk / 100, S.settings.unit))} ${uW()}/wk)`;
+  const wizPlan = () => C.wizardPlan(ui.wiz, S.weights, S.logs, FOOD, Object.assign({ logWeight: ui.wiz.logWeight }, coachOpts()));
   function viewWiz() {
     const w = ui.wiz;
     const head = (title, step, back) => brandBar() + `<div class="row" style="margin:2px 0 4px"><button class="sm ghost" style="padding-left:4px" onclick="M.wizBack('${back}')">‹ Back</button><span class="sp"></span><span class="mut xs">${step}</span></div><h1>${title}</h1>`;
@@ -639,8 +640,7 @@
     }
 
     if (w.step === 'macros') {
-      const tdee = C.initialTDEE(w, w.startWeightLb, w.bfPct);
-      const prev = C.buildPlan(w, w, tdee, w.startWeightLb, w.bfPct);
+      const { plan: prev, exp } = wizPlan();
       return head('Macros & preview', 'Step 3 of 3', 'body')
         + `<div class="card">
           <label class="xs mut" style="margin-bottom:10px">Protein intake<select onchange="M.wizF('protTier',this.value);M.reRender()">${Object.entries(C.PROT_TIERS).map(([k, v]) => `<option value="${k}" ${w.protTier === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
@@ -655,6 +655,7 @@
             <div class="kpi"><div class="k-lbl">Fat</div><div class="k-val" style="color:var(--f-col)">${prev.f}g</div></div>
           </div>
           <div class="xs mut num" style="margin-top:10px">Fiber target: ${prev.fiber}g/day${prev.etaDate ? ' · Projected ETA: ' + dstr(prev.etaDate) + ' (' + prev.weeksToGoal + ' wks)' : ''}</div>
+          <div class="xs mut" style="margin-top:4px">${exp.confidence > 0 ? `TDEE adjusted from your food logs and weigh-ins (${Math.round(exp.confidence * 100)}% adaptive).` : 'TDEE estimated from the stats you entered.'}</div>
         </div>
         <button class="pri" style="width:100%" onclick="M.saveWiz()">Start plan</button>`;
     }
@@ -670,7 +671,7 @@
     const latestTrend = tr.length ? tr[tr.length - 1].trend : null;
     const prev7Trend = tr.length > 7 ? tr[tr.length - 8].trend : null;
     const delta7 = (latestTrend != null && prev7Trend != null) ? r1(C.fromLb(latestTrend - prev7Trend, S.settings.unit)) : null;
-    const latestBf = sortedW.find(w => w.bf > 0)?.bf || S.profile.bfPct || null;
+    const latestBf = C.latestBodyFat(S.profile, S.weights) || null;
     const comp = C.bodyComp(latestTrend ? C.fromLb(latestTrend, S.settings.unit) : null, latestBf);
 
     let h = brandBar(`<button class="pri sm" onclick="M.openWeigh()">+ Weigh-in</button>`) + '<h1>Body &amp; Trends</h1>';
@@ -1159,13 +1160,14 @@
     startWiz(editing) {
       const latestW = S.weights.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
       const baseW = latestW ? latestW.weightLb : S.profile.startWeightLb;
+      const baseBf = C.latestBodyFat(S.profile, S.weights);
       const g = S.goal || {};
       setTab('plan');
       ui.wiz = {
         step: 'mode',
         mode: g.mode || 'lose',
         sex: S.profile.sex, age: S.profile.age, heightIn: S.profile.heightIn,
-        startWeightLb: baseW, bfPct: latestW?.bf || S.profile.bfPct || '', activity: S.profile.activity,
+        startWeightLb: baseW, bfPct: baseBf, bfSince: S.profile.bfSince || '', logWeight: false, activity: S.profile.activity,
         targetWeightLb: g.targetWeightLb || r1(baseW * 0.92),
         ratePctWk: g.ratePctWk || 0.75,
         targetDate: g.targetDate || '',
@@ -1185,9 +1187,9 @@
     },
     wizBack(to) { if (to === 'cancel') ui.wiz = null; else ui.wiz.step = to; render(); window.scrollTo(0, 0); },
     wizGo(to) { ui.wiz.step = to; render(); window.scrollTo(0, 0); },
-    wizF(k, v) { ui.wiz[k] = v; },
+    wizF(k, v) { ui.wiz[k] = v; if (k === 'bfPct') ui.wiz.logWeight = true; },
     wizHeight(v) { const n = parseFloat(v); if (n > 0) ui.wiz.heightIn = S.settings.unit === 'kg' ? n / C.CM_PER_IN : n; },
-    wizWeight(k, v) { const n = parseFloat(v); if (n > 0) ui.wiz[k] = C.toLb(n, S.settings.unit); },
+    wizWeight(k, v) { const n = parseFloat(v); if (n > 0) { ui.wiz[k] = C.toLb(n, S.settings.unit); if (k === 'startWeightLb') ui.wiz.logWeight = true; } },
     wizRate(v) { // live label only — a full render mid-drag would replace the slider and kill the gesture
       ui.wiz.ratePctWk = v; ui.wiz.targetDate = '';
       const l = $('#wiz_rate'); if (l) l.textContent = rateLabel(ui.wiz);
@@ -1202,12 +1204,11 @@
       render();
     },
     saveWiz() {
-      const w = ui.wiz;
-      S.profile = { sex: w.sex, age: w.age, heightIn: w.heightIn, startWeightLb: w.startWeightLb, bfPct: w.bfPct, activity: w.activity };
+      const w = ui.wiz, res = wizPlan(); // computed before S changes, so it matches the preview
+      S.profile = res.profile;
       S.goal = { mode: w.mode, targetWeightLb: w.targetWeightLb, ratePctWk: w.ratePctWk, targetDate: w.targetDate, protTier: w.protTier, split: w.split, startedAt: Date.now() };
-      if (!S.weights.length) S.weights.push({ id: C.uid(), date: C.dateKey(), weightLb: r1(w.startWeightLb), bf: w.bfPct || '', note: 'Starting weight' });
-      const exp = C.estimateExpenditure(S.profile, S.weights, S.logs, FOOD, coachOpts());
-      S.plan = C.buildPlan(S.profile, S.goal, exp.tdee, w.startWeightLb, w.bfPct);
+      S.weights = res.weights.map(x => x.id ? x : Object.assign({ id: C.uid() }, x));
+      S.plan = res.plan;
       S.lastCheckIn = Date.now();
       ui.wiz = null; setTab('log'); save(); toast('Nutrition plan ready'); render(); window.scrollTo(0, 0);
     },

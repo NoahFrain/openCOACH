@@ -165,3 +165,39 @@ test('dayTargets: training/rest split keeps the weekly average and moves carbs o
   const low = C.dayTargets({ kcal: 1800, p: 180, c: 60, f: 70 }, { on: true, shift: 400, trainDays: 5, kind: 'rest' });
   assert.equal(low.c, 20); assert.ok(low.f < 70, 'fat covers what carbs cannot');
 });
+
+const wiz = { sex: 'male', age: 26, heightIn: 75, startWeightLb: 199.2, bfPct: '', activity: 'light',
+  mode: 'lose', targetWeightLb: 170, ratePctWk: 1, protTier: 'high', split: 'balanced' };
+
+test('wizardPlan: a saved body-fat reading or old weight cannot shift a no-log plan', () => {
+  const old = [{ id: 'a', date: C.addDays(today, -10), weightLb: 181, bf: 22.4 }];
+  for (const logWeight of [false, true]) {
+    const r = C.wizardPlan(wiz, old, {}, F, { logWeight });
+    assert.equal(r.plan.tdee, 2708);
+    assert.equal(r.plan.kcal, 1712);
+  }
+  assert.equal(old.length, 1, 'inputs untouched');
+});
+
+test('wizardPlan: typed stats become today\'s weigh-in and survive a rerun', () => {
+  const old = [{ id: 'a', date: today, weightLb: 181, bf: 22.4, waist: 34 }];
+  const r = C.wizardPlan(wiz, old, {}, F, { logWeight: true });
+  assert.equal(r.weights.length, 1);
+  assert.deepEqual([r.weights[0].weightLb, r.weights[0].bf, r.weights[0].waist], [199.2, '', 34]);
+  assert.equal(C.wizardPlan(wiz, r.weights, {}, F, {}).plan.kcal, r.plan.kcal);
+  assert.equal(C.wizardPlan(wiz, old, {}, F, {}).weights[0].weightLb, 181, 'untouched fields log nothing');
+});
+
+test('wizardPlan: blank body fat retires older readings; a newer one counts again', () => {
+  const old = [{ date: C.addDays(today, -3), weightLb: 199, bf: 22 }];
+  const r = C.wizardPlan(wiz, old, {}, F, {});
+  assert.equal(C.latestBodyFat(r.profile, r.weights), '');
+  assert.equal(C.latestBodyFat(r.profile, r.weights.concat({ date: today, weightLb: 199, bf: 18 })), 18);
+});
+
+test('wizardPlan: logged data still drives an adaptive TDEE', () => {
+  const { weights, logs } = simulate();
+  const r = C.wizardPlan(Object.assign({}, wiz, { startWeightLb: 186 }), weights, logs, F, { planKcal: 2300 });
+  assert.ok(r.exp.confidence > 0);
+  assert.equal(r.plan.tdee, r.exp.tdee);
+});
