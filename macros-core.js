@@ -309,6 +309,14 @@ Protein Bar (Standard)|Snacks|1 bar (60g)|60|333|33.3|36.7|11.7|13.3|333|200|150
     return round0(clamp(bmr * activityMult(profile.activity), 1200, 5500));
   }
 
+  /** Body fat in effect: newest weigh-in that has one, else the profile's. profile.bfSince is set
+   *  when the user blanks body fat in the goal wizard, which retires older readings. */
+  function latestBodyFat(profile, weights) {
+    const since = (profile && profile.bfSince) || '';
+    const hit = (weights || []).filter(w => w.bf > 0 && w.date >= since).sort((a, b) => b.date.localeCompare(a.date))[0];
+    return hit ? hit.bf : ((profile && profile.bfPct) || '');
+  }
+
   // ---------- Weight Trend (Linear Interpolation + EWMA, MacroFactor-style) ----------
   /** entries: [{ date:'YYYY-MM-DD', weightLb, bf, ... }]
    * Returns chronological daily array [{ date, scale (number|null), interp, trend }] */
@@ -353,7 +361,7 @@ Protein Bar (Standard)|Snacks|1 bar (60g)|60|333|33.3|36.7|11.7|13.3|333|200|150
   function estimateExpenditure(profile, weights, logsByDate, foodById, opts) {
     const tr = trendWeights(weights);
     const latestW = tr.length ? tr[tr.length - 1].trend : (profile.startWeightLb || 175);
-    const latestBf = (weights || []).slice().sort((a, b) => b.date.localeCompare(a.date)).find(w => w.bf > 0)?.bf || profile.bfPct;
+    const latestBf = latestBodyFat(profile, weights);
     const init = initialTDEE(profile, latestW, latestBf);
 
     // Only finished, complete-looking (or user-confirmed) days feed the model — see coachDayStatus
@@ -467,6 +475,30 @@ Protein Bar (Standard)|Snacks|1 bar (60g)|60|333|33.3|36.7|11.7|13.3|333|200|150
     };
   }
 
+  /** The goal wizard's plan. The Step 3 preview and "Start plan" both call this, so they can't differ.
+   *  w: wizard state. opts.logWeight: the user typed a weight or body fat, so it counts as today's weigh-in.
+   *  TDEE comes from the typed stats until logged data carries some weight (confidence > 0).
+   *  Returns { plan, profile, weights, exp }; the inputs are not modified. */
+  function wizardPlan(w, weights, logsByDate, foodById, opts) {
+    const o = opts || {}, today = o.today || dateKey();
+    const bf = (w.bfPct > 3 && w.bfPct < 60) ? w.bfPct : '';
+    const profile = { sex: w.sex, age: w.age, heightIn: w.heightIn, startWeightLb: w.startWeightLb, bfPct: bf, activity: w.activity };
+    if (!bf) profile.bfSince = today;
+    else if (w.bfSince) profile.bfSince = w.bfSince;
+    const next = (weights || []).map(x => Object.assign({}, x));
+    if (o.logWeight || !next.length) {
+      const entry = { weightLb: round1(w.startWeightLb), bf };
+      const same = next.filter(x => x.date === today);
+      if (same.length) same.forEach(x => Object.assign(x, entry));
+      else next.push(Object.assign({ date: today, note: next.length ? '' : 'Starting weight' }, entry));
+    }
+    // The wizard's body fat field is authoritative: older readings don't override it here
+    const exp = estimateExpenditure(profile, next.map(x => Object.assign({}, x, { bf: '' })), logsByDate, foodById, o);
+    const tdee = exp.confidence > 0 ? exp.tdee : initialTDEE(profile, w.startWeightLb, bf);
+    const plan = buildPlan(profile, w, tdee, w.startWeightLb, bf);
+    return { plan, profile, weights: next, exp };
+  }
+
   /** Training/rest-day targets that keep the weekly average equal to the base plan.
    *  Training days get +shift kcal; the other (7 - n) days give it back evenly. The swing is
    *  carried by carbs (4 kcal/g); if rest-day carbs would drop under 20 g, fat takes the remainder.
@@ -489,7 +521,7 @@ Protein Bar (Standard)|Snacks|1 bar (60g)|60|333|33.3|36.7|11.7|13.3|333|200|150
     const exp = estimateExpenditure(profile, weights, logsByDate, foodById, opts);
     const tr = trendWeights(weights);
     const latestW = tr.length ? tr[tr.length - 1].trend : (profile.startWeightLb || 175);
-    const latestBf = (weights || []).slice().sort((a, b) => b.date.localeCompare(a.date)).find(w => w.bf > 0)?.bf || profile.bfPct;
+    const latestBf = latestBodyFat(profile, weights);
 
     // If user set an explicit targetDate, recompute required ratePctWk from remaining days
     const adjGoal = Object.assign({}, goal);
@@ -677,7 +709,7 @@ Protein Bar (Standard)|Snacks|1 bar (60g)|60|333|33.3|36.7|11.7|13.3|333|200|150
     seedFoods, foodNutrients, sumNutrients, dayTotals, recipeTotals,
     snapFood, entryNutrients, entryName, coachDayStatus, recentFoods,
     barcodeKey, sameBarcode, upcEtoA, barcodeCandidates,
-    navyBodyFat, bodyComp, initialTDEE, trendWeights, estimateExpenditure,
+    navyBodyFat, bodyComp, latestBodyFat, wizardPlan, initialTDEE, trendWeights, estimateExpenditure,
     buildPlan, dayTargets, weeklyCheckIn, diaryToCSV, biometricsToCSV, parseOFFProduct, parseUSDAFood, parseScanPayload,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.MCore = api;
